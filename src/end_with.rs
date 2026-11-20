@@ -7,10 +7,7 @@ use std::{
     task::{Context, Poll, ready},
 };
 
-use futures_util::{
-    Stream, StreamExt as _,
-    stream::{Fuse, FusedStream},
-};
+use futures_util::{Stream, stream::FusedStream};
 use pin_project_lite::pin_project;
 
 #[cfg(doc)]
@@ -21,9 +18,10 @@ pin_project! {
     #[must_use = "streams do nothing unless polled"]
     pub struct EndWith<St, F> {
         #[pin]
-        stream: Fuse<St>,
+        stream: St,
 
-        // `None` after the final item has been created.
+        // `None` after the stream ended and the final item has been created.
+        // The stream is not polled anymore afterwards.
         make_item: Option<F>,
     }
 }
@@ -40,13 +38,10 @@ where
     }
 }
 
-impl<St, F> EndWith<St, F>
-where
-    St: Stream,
-{
-    pub(super) fn new(stream: St, make_item: F) -> Self {
+impl<St, F> EndWith<St, F> {
+    pub(super) const fn new(stream: St, make_item: F) -> Self {
         Self {
-            stream: stream.fuse(),
+            stream,
             make_item: Some(make_item),
         }
     }
@@ -61,6 +56,9 @@ where
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.project();
+        if this.make_item.is_none() {
+            return Poll::Ready(None);
+        }
         let next = match ready!(this.stream.poll_next(cx)) {
             Some(item) => Some(item),
             None => this.make_item.take().map(|make_item| make_item()),
@@ -69,11 +67,13 @@ where
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let pending = usize::from(self.make_item.is_some());
+        if self.make_item.is_none() {
+            return (0, Some(0));
+        }
         let (lower, upper) = self.stream.size_hint();
         (
-            lower.saturating_add(pending),
-            upper.and_then(|upper| upper.checked_add(pending)),
+            lower.saturating_add(1),
+            upper.and_then(|upper| upper.checked_add(1)),
         )
     }
 }
@@ -84,6 +84,6 @@ where
     F: FnOnce() -> St::Item,
 {
     fn is_terminated(&self) -> bool {
-        self.stream.is_terminated() && self.make_item.is_none()
+        self.make_item.is_none()
     }
 }
