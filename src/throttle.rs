@@ -46,6 +46,14 @@ pub trait Throttler<T>: Stream<Item = ()> {
 
 pin_project! {
     /// Result of [`StreamExt::throttle()`](crate::StreamExt::throttle).
+    ///
+    /// Also returned by
+    /// [`StreamExt::throttle_interval_with_sleep()`](crate::StreamExt::throttle_interval_with_sleep).
+    #[cfg_attr(
+        feature = "tokio",
+        doc = "",
+        doc = "Also returned by [`tokio::StreamExt::throttle_interval()`](crate::tokio::StreamExt::throttle_interval)."
+    )]
     #[derive(Debug)]
     #[must_use = "streams do nothing unless polled or .awaited"]
     pub struct Throttle<St: Stream, Th: Throttler<<St as Stream>::Item>> {
