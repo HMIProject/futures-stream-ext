@@ -99,6 +99,24 @@ async fn debounce_with_sleep_should_limit_polling_of_ready_items() {
 }
 
 #[tokio::test]
+async fn debounce_with_sleep_should_emit_every_item_with_zero_delay_and_min_ready_count() {
+    let actual = stream::iter([1, 2, 3])
+        .debounce_with_sleep::<NoSleep>(Duration::ZERO, NonZeroUsize::MIN)
+        .collect::<Vec<_>>()
+        .await;
+    assert_eq!(vec![1, 2, 3], actual);
+}
+
+#[tokio::test]
+async fn throttle_should_skip_ready_items_with_greater_ready_count() {
+    let actual = stream::iter([1, 2, 3])
+        .throttle(NoThrottler, NonZeroUsize::new(2).unwrap())
+        .collect::<Vec<_>>()
+        .await;
+    assert_eq!(vec![2, 3], actual);
+}
+
+#[tokio::test]
 async fn throttle_should_pass_through_all_items_if_always_ready() {
     let actual = stream::iter([1, 2, 3])
         .throttle(NoThrottler, NonZeroUsize::MIN)
@@ -232,6 +250,24 @@ fn switch_map_should_wake_itself_if_outer_stream_might_still_be_ready() {
     // stream could wake up the task, but it has ended.
     assert_eq!(stream.poll_next_unpin(&mut cx), Poll::Pending);
     assert!(!wake_flag.0.load(Ordering::Relaxed));
+}
+
+#[tokio::test]
+async fn switch_map_should_poll_every_inner_stream_with_min_ready_count() {
+    let actual = stream::iter([1, 2])
+        .switch_map(|n| stream::iter([n * 10, n * 10 + 1]), NonZeroUsize::MIN)
+        .collect::<Vec<_>>()
+        .await;
+    assert_eq!(vec![10, 20, 21], actual);
+
+    let actual = stream::iter([1, 2])
+        .switch_map(
+            |n| stream::iter([n * 10, n * 10 + 1]),
+            NonZeroUsize::new(2).unwrap(),
+        )
+        .collect::<Vec<_>>()
+        .await;
+    assert_eq!(vec![20, 21], actual);
 }
 
 #[test]

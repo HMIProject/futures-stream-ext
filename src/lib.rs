@@ -236,6 +236,24 @@ pub trait StreamExt: Stream {
     /// are polled consecutively from the input stream during an invocation
     /// of [`Stream::poll_next()`] before polling the delay. This limit ensures
     /// that input streams which are always ready are not polled forever.
+    ///
+    /// # Choosing `poll_next_max_ready_count`
+    ///
+    /// [`NonZeroUsize::MIN`] is a safe default. With a non-zero delay the value
+    /// usually does not affect which items are emitted: items that are ready at
+    /// the same time fall into the same delay window anyway. A greater value only
+    /// reduces the number of delay resets and self-wakeups for bursts of items,
+    /// e.g. the capacity of the channel that feeds the input stream.
+    ///
+    /// With a zero delay, the value determines which items are discarded:
+    /// [`NonZeroUsize::MIN`] emits every item, a greater value emits only the
+    /// latest of up to `poll_next_max_ready_count` items that are ready at the
+    /// same time.
+    ///
+    /// Use [`NonZeroUsize::MAX`] only if the input stream is guaranteed to
+    /// become pending eventually. Otherwise, polling an input stream that is
+    /// always ready never returns.
+    ///
     /// See also: [`throttle()`](Self::throttle)
     fn debounce_with_sleep<S: Sleep>(
         self,
@@ -257,10 +275,24 @@ pub trait StreamExt: Stream {
     /// of [`Stream::poll_next()`] before polling the throttler. This limit
     /// ensures that input streams which are always ready are not polled forever.
     ///
-    /// A value of [`NonZeroUsize::MIN`] will poll the input stream only once and
-    /// could be used as a safe default. Using a greater value to skip multiple
-    /// items at once will reduce the number of calls to the throttler and
-    /// improves the performance and efficiency.
+    /// # Choosing `poll_next_max_ready_count`
+    ///
+    /// [`NonZeroUsize::MIN`] polls the input stream only once and is a safe
+    /// default. A greater value skips multiple items that are ready at the same
+    /// time at once, which reduces the number of calls to the throttler and
+    /// self-wakeups. A good choice is the expected burst size of the input
+    /// stream, e.g. the capacity of the channel that feeds it.
+    ///
+    /// The value only affects which items are yielded if the throttler is ready
+    /// while multiple items are ready at the same time: [`NonZeroUsize::MIN`]
+    /// yields the first one, a greater value the latest of up to
+    /// `poll_next_max_ready_count` items. See
+    /// [`throttle_interval_with_sleep()`](Self::throttle_interval_with_sleep)
+    /// for the impact on interval throttling.
+    ///
+    /// Use [`NonZeroUsize::MAX`] only if the input stream is guaranteed to
+    /// become pending eventually. Otherwise, polling an input stream that is
+    /// always ready never returns.
     fn throttle<Th>(
         self,
         throttler: Th,
@@ -276,6 +308,23 @@ pub trait StreamExt: Stream {
     /// Throttles an input stream by using a fixed interval.
     ///
     /// The interval is implemented by the given [`Sleep`] type.
+    ///
+    /// # Choosing `poll_next_max_ready_count`
+    ///
+    /// [`NonZeroUsize::MIN`] is a safe default. The value only affects which
+    /// items are yielded if a tick is ready while multiple items are ready at
+    /// the same time:
+    ///
+    /// - With [`IntervalEdge::Trailing`], items that are ready at the same time
+    ///   fall into the same interval anyway. A greater value only improves the
+    ///   efficiency.
+    /// - With [`IntervalEdge::Leading`], the first item of a burst is yielded
+    ///   immediately. [`NonZeroUsize::MIN`] yields the first ready item, a greater
+    ///   value the latest of up to `poll_next_max_ready_count` items that are
+    ///   ready at the same time.
+    /// - With a zero period, [`NonZeroUsize::MIN`] passes every item through,
+    ///   a greater value skips all but the latest of the items that are ready at
+    ///   the same time.
     ///
     /// See also: [`throttle()`](Self::throttle)
     fn throttle_interval_with_sleep<S: Sleep>(
@@ -304,6 +353,28 @@ pub trait StreamExt: Stream {
     /// one is created. The limit prevents an endless loop for an outer stream that
     /// is always ready. After reaching it, the current inner stream is polled
     /// before the outer stream is polled again.
+    ///
+    /// # Choosing `poll_next_max_ready_count`
+    ///
+    /// Unlike for [`debounce_with_sleep()`](Self::debounce_with_sleep) and
+    /// [`throttle()`](Self::throttle), the value affects the result whenever the
+    /// outer stream yields multiple items at the same time. With
+    /// [`NonZeroUsize::MIN`], an inner stream is created for every outer item
+    /// and polled once before switching to the next one. It may yield items,
+    /// although a newer outer item is already ready. For example, the outer
+    /// stream `stream::iter([1, 2])` with `|n| stream::iter([n * 10, n * 10 + 1])`
+    /// yields `10 20 21` with [`NonZeroUsize::MIN`], but only `20 21` with a value
+    /// of 2 or greater.
+    ///
+    /// Choose a value that is at least as large as the expected burst size of
+    /// the outer stream, e.g. the capacity of the channel that feeds it. Then
+    /// a burst of outer items creates only a single inner stream for the latest
+    /// one. This matters if creating an inner stream is expensive or has side
+    /// effects, e.g. when it subscribes to a resource.
+    ///
+    /// Use [`NonZeroUsize::MAX`] only if the outer stream is guaranteed to
+    /// become pending eventually, e.g. a finite `stream::iter()`. Otherwise,
+    /// polling an outer stream that is always ready never returns.
     ///
     /// Ends after both the outer stream and the current inner stream ended. An inner
     /// stream that ended is not considered as stale, i.e. its last item remains valid
