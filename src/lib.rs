@@ -25,7 +25,7 @@ pub use self::dedup::{
 };
 
 mod default_if_empty;
-pub use self::default_if_empty::DefaultIfEmpty;
+pub use self::default_if_empty::{DefaultIfEmpty, DefaultItem, MakeItem};
 
 mod end_with;
 pub use self::end_with::EndWith;
@@ -433,12 +433,12 @@ pub trait StreamExt: Stream {
     /// Equivalent to `defaultIfEmpty` in RxJS.
     ///
     /// See also: [`default_if_empty_with()`](Self::default_if_empty_with)
-    fn default_if_empty(self) -> DefaultIfEmpty<Self, fn() -> Self::Item>
+    fn default_if_empty(self) -> DefaultIfEmpty<Self, DefaultItem<Self::Item>>
     where
         Self: Sized,
         Self::Item: Default,
     {
-        DefaultIfEmpty::new(self, Self::Item::default as fn() -> Self::Item)
+        DefaultIfEmpty::new(self, DefaultItem::new())
     }
 
     /// Yields a single item if this stream ends without yielding any items.
