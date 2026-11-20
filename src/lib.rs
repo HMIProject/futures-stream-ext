@@ -187,8 +187,10 @@ pub trait StreamExt: Stream {
 
     /// Filters out subsequent/adjacent stream items that are equal according to `eq_fn`.
     ///
-    /// `eq_fn` is invoked with the last passed through item and the next item.
-    /// The next item is discarded if `eq_fn` returns `true`.
+    /// `eq_fn` is invoked with the last passed through item and the next item,
+    /// in this order. The next item is discarded if `eq_fn` returns `true`.
+    /// The order matches `Itertools::dedup_by()`, but is the opposite of
+    /// [`Vec::dedup_by()`], which passes the next element first.
     /// Each passed through item is cloned once and stored until it is replaced
     /// by the next item that is not equal.
     ///
