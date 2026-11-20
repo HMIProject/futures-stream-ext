@@ -293,6 +293,87 @@ fn switch_map_should_implement_debug_for_closures() {
 }
 
 #[test]
+fn end_with_yields_final_item_after_stream_ended() {
+    let mut stream = stream::iter([1, 2]).end_with(|| 0);
+    assert_eq!(stream.size_hint(), (3, Some(3)));
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(1)));
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(2)));
+    assert!(!stream.is_terminated());
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(0)));
+    assert_eq!(stream.size_hint(), (0, Some(0)));
+    assert_eq!(poll_next(&mut stream), Poll::Ready(None));
+    assert!(stream.is_terminated());
+    assert_eq!(poll_next(&mut stream), Poll::Ready(None));
+}
+
+#[test]
+fn end_with_yields_final_item_after_empty_stream() {
+    let mut stream = stream::empty().end_with(|| 0);
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(0)));
+    assert_eq!(poll_next(&mut stream), Poll::Ready(None));
+}
+
+#[test]
+fn end_with_creates_final_item_only_after_stream_ended() {
+    let queue = Rc::new(RefCell::new(VecDeque::from([1])));
+    let created = Rc::new(RefCell::new(false));
+    let mut stream = queued_stream(&queue).end_with({
+        let created = Rc::clone(&created);
+        move || {
+            *created.borrow_mut() = true;
+            0
+        }
+    });
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(1)));
+    assert_eq!(poll_next(&mut stream), Poll::Pending);
+    assert!(!*created.borrow());
+}
+
+#[test]
+fn end_with_accepts_streams_that_are_not_unpin() {
+    let inner = stream::once(async { 1 });
+    assert_not_unpin(&inner);
+    let mut stream = pin!(inner.end_with(|| 0));
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(1)));
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(0)));
+    assert_eq!(poll_next(&mut stream), Poll::Ready(None));
+}
+
+#[test]
+fn end_with_and_default_if_empty_implement_debug_for_closures() {
+    let debug = format!("{:?}", stream::iter([1]).end_with(|| 0));
+    assert!(debug.starts_with("EndWith { stream: "), "{debug}");
+    assert!(debug.ends_with(", .. }"), "{debug}");
+    let debug = format!("{:?}", stream::iter([1]).default_if_empty(|| 0));
+    assert!(debug.starts_with("DefaultIfEmpty { stream: "), "{debug}");
+    assert!(debug.ends_with(", .. }"), "{debug}");
+}
+
+#[test]
+fn default_if_empty_is_terminated_after_empty_stream_ended() {
+    let mut stream = stream::empty().default_if_empty(|| 0);
+    assert_eq!(stream.size_hint(), (1, Some(1)));
+    assert!(!stream.is_terminated());
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(0)));
+    assert_eq!(stream.size_hint(), (0, Some(0)));
+    assert_eq!(poll_next(&mut stream), Poll::Ready(None));
+    assert!(stream.is_terminated());
+    assert_eq!(poll_next(&mut stream), Poll::Ready(None));
+}
+
+#[test]
+fn default_if_empty_is_terminated_after_non_empty_stream_ended() {
+    let mut stream = stream::iter([1, 2]).default_if_empty(|| 0);
+    assert_eq!(stream.size_hint(), (2, Some(2)));
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(1)));
+    assert_eq!(stream.size_hint(), (1, Some(1)));
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(2)));
+    assert!(!stream.is_terminated());
+    assert_eq!(poll_next(&mut stream), Poll::Ready(None));
+    assert!(stream.is_terminated());
+}
+
+#[test]
 fn default_if_empty_yields_item_after_empty_stream() {
     let mut stream = pin!(stream::empty().default_if_empty(|| 0));
     assert_eq!(poll_next(&mut stream), Poll::Ready(Some(0)));

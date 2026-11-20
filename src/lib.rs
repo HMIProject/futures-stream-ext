@@ -13,10 +13,13 @@ use std::{
     time::Duration,
 };
 
-use futures_util::{FutureExt as _, Stream, StreamExt as _, future, stream::Fuse};
+use futures_util::{Stream, stream::Fuse};
 
 mod debounce;
 pub use self::debounce::Debounced;
+
+mod default_if_empty;
+pub use self::default_if_empty::DefaultIfEmpty;
 
 mod distinct;
 pub use self::distinct::{
@@ -24,6 +27,9 @@ pub use self::distinct::{
     DistinctUntilChangedErr, DistinctUntilChangedOk, filter_distinct_until_changed,
     filter_distinct_until_changed_err, filter_distinct_until_changed_ok,
 };
+
+mod end_with;
+pub use self::end_with::EndWith;
 
 mod switch_map;
 pub use self::switch_map::SwitchMap;
@@ -356,11 +362,12 @@ pub trait StreamExt: Stream {
     /// Intended for finite streams whose last item becomes invalid when they
     /// end, e.g. by yielding an error as the final item. Consumers consider the
     /// last item of a finite stream as valid indefinitely otherwise.
-    fn end_with(self, make_item: impl FnOnce() -> Self::Item) -> impl Stream<Item = Self::Item>
+    fn end_with<F>(self, make_item: F) -> EndWith<Self, F>
     where
         Self: Sized,
+        F: FnOnce() -> Self::Item,
     {
-        self.chain(future::lazy(|_cx| make_item()).into_stream())
+        EndWith::new(self, make_item)
     }
 
     /// Yields a single item if this stream ends without yielding any items.
@@ -368,26 +375,12 @@ pub trait StreamExt: Stream {
     /// Yields a final item created by `make_item` if the stream ended before
     /// yielding its first item. Otherwise, the stream is passed through unchanged.
     /// Equivalent to `defaultIfEmpty` in RxJS.
-    fn default_if_empty(
-        self,
-        make_item: impl FnOnce() -> Self::Item,
-    ) -> impl Stream<Item = Self::Item>
+    fn default_if_empty<F>(self, make_item: F) -> DefaultIfEmpty<Self, F>
     where
         Self: Sized,
+        F: FnOnce() -> Self::Item,
     {
-        let mut make_item = Some(make_item);
-        self.map(Some)
-            .chain(future::ready(None).into_stream())
-            .filter_map(move |next| {
-                let item = match next {
-                    Some(item) => {
-                        make_item = None;
-                        Some(item)
-                    }
-                    None => make_item.take().map(|make_item| make_item()),
-                };
-                future::ready(item)
-            })
+        DefaultIfEmpty::new(self, make_item)
     }
 }
 
