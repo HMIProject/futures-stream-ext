@@ -26,6 +26,18 @@ async fn should_filter_out_adjacent_items_that_are_equal_by_comparison() {
 }
 
 #[tokio::test]
+async fn should_compare_the_last_passed_through_item_with_the_next_item() {
+    let input = futures_util::stream::iter([3, 1, 4, 1, 5, 9, 2, 6]);
+    // Discards each item that is less than the last passed through item.
+    let expected = vec![3, 4, 5, 9];
+    let actual = input
+        .dedup_by(|last, next: &i32| next < last)
+        .collect::<Vec<_>>()
+        .await;
+    assert_eq!(expected, actual);
+}
+
+#[tokio::test]
 async fn should_filter_out_adjacent_items_with_the_same_key() {
     let input = futures_util::stream::iter([1, 1, 2, 1, 2, 2, 4, 5, 2, 3, 3, 7]);
     let expected = vec![1, 2, 1, 2, 4, 2, 7];
