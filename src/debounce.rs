@@ -26,7 +26,7 @@ pin_project! {
 
         delay: Duration,
 
-        poll_next_max_ready_count: NonZeroUsize,
+        max_ready_count: NonZeroUsize,
 
         pending_item: Option<St::Item>,
 
@@ -38,15 +38,11 @@ pin_project! {
 }
 
 impl<St: Stream, S: Sleep> Debounced<St, S> {
-    pub(crate) fn new(
-        stream: St,
-        delay: Duration,
-        poll_next_max_ready_count: NonZeroUsize,
-    ) -> Self {
+    pub(crate) fn new(stream: St, delay: Duration, max_ready_count: NonZeroUsize) -> Self {
         Self {
             stream: stream.fuse(),
             delay,
-            poll_next_max_ready_count,
+            max_ready_count,
             pending_item: None,
             sleep: None,
         }
@@ -64,13 +60,13 @@ where
         let DebouncedProjection {
             mut stream,
             delay,
-            poll_next_max_ready_count,
+            max_ready_count,
             pending_item,
             mut sleep,
         } = self.project();
 
         let (latest_item, stream_maybe_ready) =
-            poll_latest_ready(stream.as_mut(), cx, *poll_next_max_ready_count);
+            poll_latest_ready(stream.as_mut(), cx, *max_ready_count);
 
         // Replace the pending item and restart the delay.
         if let Some(latest_item) = latest_item {

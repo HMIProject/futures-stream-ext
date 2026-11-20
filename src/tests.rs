@@ -330,10 +330,7 @@ fn switch_map_should_implement_debug_for_closures() {
     let debug = format!("{stream:?}");
     assert!(debug.starts_with("SwitchMap { outer: "), "{debug}");
     assert!(debug.contains("inner: Some("), "{debug}");
-    assert!(
-        debug.ends_with(", poll_next_max_ready_count: 1, .. }"),
-        "{debug}"
-    );
+    assert!(debug.ends_with(", max_ready_count: 1, .. }"), "{debug}");
 }
 
 #[test]
