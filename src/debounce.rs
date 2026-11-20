@@ -19,6 +19,7 @@ use crate::{Sleep, pending_and_wake_if, poll_latest_ready, reset_or_sleep};
 pin_project! {
     /// Result of [`StreamExt::debounce_with_sleep()`](crate::StreamExt::debounce_with_sleep).
     #[derive(Debug)]
+    #[must_use = "streams do nothing unless polled or .awaited"]
     #[project = DebounceProjection]
     pub struct Debounce<St: Stream, S> {
         #[pin]
