@@ -82,17 +82,17 @@ macro_rules! delegate_stream_to_inner {
 /// All other sequence items are discarded.
 ///
 /// See also: <https://rxmarbles.com/#distinctUntilChanged>
-pub fn filter_distinct_until_changed<T>(last_item: &mut Option<T>, next_item: &T) -> bool
+pub fn filter_dedup<T>(last_item: &mut Option<T>, next_item: &T) -> bool
 where
     T: Clone + PartialEq,
 {
-    filter_distinct_until_changed_by(last_item, next_item, |last_item, next_item| {
+    filter_dedup_by(last_item, next_item, |last_item, next_item| {
         last_item == next_item
     })
 }
 
-/// Like [`filter_distinct_until_changed()`], but compares items with `eq_fn`.
-fn filter_distinct_until_changed_by<T>(
+/// Like [`filter_dedup()`], but compares items with `eq_fn`.
+fn filter_dedup_by<T>(
     last_item: &mut Option<T>,
     next_item: &T,
     eq_fn: impl FnOnce(&T, &T) -> bool,
@@ -117,16 +117,15 @@ where
 
 /// State for filtering distinct values that are interrupted by other items.
 ///
-/// Used by [`filter_distinct_until_changed_ok()`] and
-/// [`filter_distinct_until_changed_err()`]. Keeps the last value
-/// after an interruption to reuse its allocation.
+/// Used by [`filter_dedup_ok()`] and [`filter_dedup_err()`]. Keeps the last
+/// value after an interruption to reuse its allocation.
 #[derive(Debug, Clone)]
-pub struct DistinctState<T> {
+pub struct DedupState<T> {
     last_value: Option<T>,
     interrupted: bool,
 }
 
-impl<T> DistinctState<T> {
+impl<T> DedupState<T> {
     #[must_use]
     pub const fn new() -> Self {
         Self {
@@ -136,18 +135,15 @@ impl<T> DistinctState<T> {
     }
 }
 
-impl<T> Default for DistinctState<T> {
+impl<T> Default for DedupState<T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// Like [`filter_distinct_until_changed()`], but passes through and
+/// Like [`filter_dedup()`], but passes through and
 /// interrupts the sequence if `next_value` is `None`.
-fn filter_distinct_until_changed_some<T>(
-    state: &mut DistinctState<T>,
-    next_value: Option<&T>,
-) -> bool
+fn filter_dedup_some<T>(state: &mut DedupState<T>, next_value: Option<&T>) -> bool
 where
     T: Clone + PartialEq,
 {
@@ -156,7 +152,7 @@ where
         return true;
     };
     if !state.interrupted {
-        return filter_distinct_until_changed(&mut state.last_value, next_value);
+        return filter_dedup(&mut state.last_value, next_value);
     }
     state.interrupted = false;
     match &mut state.last_value {
@@ -169,21 +165,21 @@ where
 
 impl<T: Clone + PartialEq> FilterState<T> for Option<T> {
     fn filter_next(&mut self, next_item: &T) -> bool {
-        filter_distinct_until_changed(self, next_item)
+        filter_dedup(self, next_item)
     }
 }
 
 pin_project! {
-    /// Result of [`StreamExt::distinct_until_changed()`](crate::StreamExt::distinct_until_changed).
+    /// Result of [`StreamExt::dedup()`](crate::StreamExt::dedup).
     #[derive(Debug)]
     #[must_use = "streams do nothing unless polled or .awaited"]
-    pub struct DistinctUntilChanged<St: Stream> {
+    pub struct Dedup<St: Stream> {
         #[pin]
         inner: FilterStatefulSync<St, Option<St::Item>>,
     }
 }
 
-impl<St: Stream> DistinctUntilChanged<St> {
+impl<St: Stream> Dedup<St> {
     pub(crate) const fn new(stream: St) -> Self {
         Self {
             inner: FilterStatefulSync {
@@ -194,7 +190,7 @@ impl<St: Stream> DistinctUntilChanged<St> {
     }
 }
 
-impl<St> Stream for DistinctUntilChanged<St>
+impl<St> Stream for Dedup<St>
 where
     St: Stream,
     St::Item: Clone + PartialEq,
@@ -202,7 +198,7 @@ where
     delegate_stream_to_inner!();
 }
 
-impl<St> FusedStream for DistinctUntilChanged<St>
+impl<St> FusedStream for Dedup<St>
 where
     St: FusedStream,
     St::Item: Clone + PartialEq,
@@ -224,21 +220,21 @@ where
     F: FnMut(&T, &T) -> bool,
 {
     fn filter_next(&mut self, next_item: &T) -> bool {
-        filter_distinct_until_changed_by(&mut self.last_item, next_item, &mut self.eq_fn)
+        filter_dedup_by(&mut self.last_item, next_item, &mut self.eq_fn)
     }
 }
 
 pin_project! {
-    /// Result of [`StreamExt::distinct_until_changed_by()`](crate::StreamExt::distinct_until_changed_by).
+    /// Result of [`StreamExt::dedup_by()`](crate::StreamExt::dedup_by).
     #[derive(Debug)]
     #[must_use = "streams do nothing unless polled or .awaited"]
-    pub struct DistinctUntilChangedBy<St: Stream, F> {
+    pub struct DedupBy<St: Stream, F> {
         #[pin]
         inner: FilterStatefulSync<St, ByState<St::Item, F>>,
     }
 }
 
-impl<St: Stream, F> DistinctUntilChangedBy<St, F> {
+impl<St: Stream, F> DedupBy<St, F> {
     pub(crate) const fn new(stream: St, eq_fn: F) -> Self {
         Self {
             inner: FilterStatefulSync {
@@ -252,7 +248,7 @@ impl<St: Stream, F> DistinctUntilChangedBy<St, F> {
     }
 }
 
-impl<St, F> Stream for DistinctUntilChangedBy<St, F>
+impl<St, F> Stream for DedupBy<St, F>
 where
     St: Stream,
     St::Item: Clone,
@@ -261,7 +257,7 @@ where
     delegate_stream_to_inner!();
 }
 
-impl<St, F> FusedStream for DistinctUntilChangedBy<St, F>
+impl<St, F> FusedStream for DedupBy<St, F>
 where
     St: FusedStream,
     St::Item: Clone,
@@ -294,16 +290,16 @@ where
 }
 
 pin_project! {
-    /// Result of [`StreamExt::distinct_until_changed_by_key()`](crate::StreamExt::distinct_until_changed_by_key).
+    /// Result of [`StreamExt::dedup_by_key()`](crate::StreamExt::dedup_by_key).
     #[derive(Debug)]
     #[must_use = "streams do nothing unless polled or .awaited"]
-    pub struct DistinctUntilChangedByKey<St, K, F> {
+    pub struct DedupByKey<St, K, F> {
         #[pin]
         inner: FilterStatefulSync<St, ByKeyState<K, F>>,
     }
 }
 
-impl<St, K, F> DistinctUntilChangedByKey<St, K, F> {
+impl<St, K, F> DedupByKey<St, K, F> {
     pub(crate) const fn new(stream: St, initial_key: K, key_fn: F) -> Self {
         Self {
             inner: FilterStatefulSync {
@@ -317,7 +313,7 @@ impl<St, K, F> DistinctUntilChangedByKey<St, K, F> {
     }
 }
 
-impl<St, K, F> Stream for DistinctUntilChangedByKey<St, K, F>
+impl<St, K, F> Stream for DedupByKey<St, K, F>
 where
     St: Stream,
     K: PartialEq,
@@ -326,7 +322,7 @@ where
     delegate_stream_to_inner!();
 }
 
-impl<St, K, F> FusedStream for DistinctUntilChangedByKey<St, K, F>
+impl<St, K, F> FusedStream for DedupByKey<St, K, F>
 where
     St: FusedStream,
     K: PartialEq,
@@ -343,51 +339,48 @@ where
 /// All other `Ok` sequence items are discarded.
 /// All `Err` sequence items are passed through.
 ///
-/// See also: [`filter_distinct_until_changed()`]
-pub fn filter_distinct_until_changed_ok<T, E>(
-    state: &mut DistinctState<T>,
-    next_result: &Result<T, E>,
-) -> bool
+/// See also: [`filter_dedup()`]
+pub fn filter_dedup_ok<T, E>(state: &mut DedupState<T>, next_result: &Result<T, E>) -> bool
 where
     T: Clone + PartialEq,
 {
-    filter_distinct_until_changed_some(state, next_result.as_ref().ok())
+    filter_dedup_some(state, next_result.as_ref().ok())
 }
 
 #[derive(Debug)]
-struct OkState<T>(DistinctState<T>);
+struct OkState<T>(DedupState<T>);
 
 impl<T, E> FilterState<Result<T, E>> for OkState<T>
 where
     T: Clone + PartialEq,
 {
     fn filter_next(&mut self, next_result: &Result<T, E>) -> bool {
-        filter_distinct_until_changed_ok(&mut self.0, next_result)
+        filter_dedup_ok(&mut self.0, next_result)
     }
 }
 
 pin_project! {
-    /// Result of [`StreamExt::distinct_until_changed_ok()`](crate::StreamExt::distinct_until_changed_ok).
+    /// Result of [`StreamExt::dedup_ok()`](crate::StreamExt::dedup_ok).
     #[derive(Debug)]
     #[must_use = "streams do nothing unless polled or .awaited"]
-    pub struct DistinctUntilChangedOk<St, T> {
+    pub struct DedupOk<St, T> {
         #[pin]
         inner: FilterStatefulSync<St, OkState<T>>,
     }
 }
 
-impl<St, T> DistinctUntilChangedOk<St, T> {
+impl<St, T> DedupOk<St, T> {
     pub(crate) const fn new(stream: St) -> Self {
         Self {
             inner: FilterStatefulSync {
                 stream,
-                state: OkState(DistinctState::new()),
+                state: OkState(DedupState::new()),
             },
         }
     }
 }
 
-impl<St, T, E> Stream for DistinctUntilChangedOk<St, T>
+impl<St, T, E> Stream for DedupOk<St, T>
 where
     St: Stream<Item = Result<T, E>>,
     T: Clone + PartialEq,
@@ -395,7 +388,7 @@ where
     delegate_stream_to_inner!();
 }
 
-impl<St, T, E> FusedStream for DistinctUntilChangedOk<St, T>
+impl<St, T, E> FusedStream for DedupOk<St, T>
 where
     St: FusedStream<Item = Result<T, E>>,
     T: Clone + PartialEq,
@@ -411,51 +404,48 @@ where
 /// All other `Err` sequence items are discarded.
 /// All `Ok` sequence items are passed through.
 ///
-/// See also: [`filter_distinct_until_changed()`]
-pub fn filter_distinct_until_changed_err<T, E>(
-    state: &mut DistinctState<E>,
-    next_result: &Result<T, E>,
-) -> bool
+/// See also: [`filter_dedup()`]
+pub fn filter_dedup_err<T, E>(state: &mut DedupState<E>, next_result: &Result<T, E>) -> bool
 where
     E: Clone + PartialEq,
 {
-    filter_distinct_until_changed_some(state, next_result.as_ref().err())
+    filter_dedup_some(state, next_result.as_ref().err())
 }
 
 #[derive(Debug)]
-struct ErrState<E>(DistinctState<E>);
+struct ErrState<E>(DedupState<E>);
 
 impl<T, E> FilterState<Result<T, E>> for ErrState<E>
 where
     E: Clone + PartialEq,
 {
     fn filter_next(&mut self, next_result: &Result<T, E>) -> bool {
-        filter_distinct_until_changed_err(&mut self.0, next_result)
+        filter_dedup_err(&mut self.0, next_result)
     }
 }
 
 pin_project! {
-    /// Result of [`StreamExt::distinct_until_changed_err()`](crate::StreamExt::distinct_until_changed_err).
+    /// Result of [`StreamExt::dedup_err()`](crate::StreamExt::dedup_err).
     #[derive(Debug)]
     #[must_use = "streams do nothing unless polled or .awaited"]
-    pub struct DistinctUntilChangedErr<St, E> {
+    pub struct DedupErr<St, E> {
         #[pin]
         inner: FilterStatefulSync<St, ErrState<E>>,
     }
 }
 
-impl<St, E> DistinctUntilChangedErr<St, E> {
+impl<St, E> DedupErr<St, E> {
     pub(crate) const fn new(stream: St) -> Self {
         Self {
             inner: FilterStatefulSync {
                 stream,
-                state: ErrState(DistinctState::new()),
+                state: ErrState(DedupState::new()),
             },
         }
     }
 }
 
-impl<St, T, E> Stream for DistinctUntilChangedErr<St, E>
+impl<St, T, E> Stream for DedupErr<St, E>
 where
     St: Stream<Item = Result<T, E>>,
     E: Clone + PartialEq,
@@ -463,7 +453,7 @@ where
     delegate_stream_to_inner!();
 }
 
-impl<St, T, E> FusedStream for DistinctUntilChangedErr<St, E>
+impl<St, T, E> FusedStream for DedupErr<St, E>
 where
     St: FusedStream<Item = Result<T, E>>,
     E: Clone + PartialEq,

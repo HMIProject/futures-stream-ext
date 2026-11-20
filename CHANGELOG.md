@@ -24,6 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Breaking:** The stream types `Debounced` and `Throttled` were renamed to `Debounce` and `Throttle`, matching the names of the methods that return them.
+- **Breaking:** The `distinct_until_changed` family was renamed to `dedup`, following `Vec::dedup()` and `Itertools::dedup()`:
+  - The methods `distinct_until_changed()`, `distinct_until_changed_by()`, `distinct_until_changed_by_key()`, `distinct_until_changed_ok()` and `distinct_until_changed_err()` to `dedup()`, `dedup_by()`, `dedup_by_key()`, `dedup_ok()` and `dedup_err()`.
+  - The stream types `DistinctUntilChanged*` to `Dedup*`.
+  - The functions `filter_distinct_until_changed()`, `filter_distinct_until_changed_ok()` and `filter_distinct_until_changed_err()` to `filter_dedup()`, `filter_dedup_ok()` and `filter_dedup_err()`.
+  - `DistinctState` to `DedupState`.
 
 ## [0.6.1] - 2026-11-20
 
