@@ -28,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The functions `filter_distinct_until_changed()`, `filter_distinct_until_changed_ok()` and `filter_distinct_until_changed_err()` to `filter_dedup()`, `filter_dedup_ok()` and `filter_dedup_err()`.
   - `DistinctState` to `DedupState`.
   - `dedup_by()` invokes the comparison function with the last passed through item first, like `Itertools::dedup_by()` and unlike `Vec::dedup_by()`.
+- **Breaking:** `dedup_by_key()` no longer takes an initial key and always passes through the first item, like `Vec::dedup_by_key()`.
+  Replace `distinct_until_changed_by_key(None, |item| Some(key(item)))` with `dedup_by_key(|item| key(item))`.
 
 ## [0.6.1] - 2026-11-20
 
