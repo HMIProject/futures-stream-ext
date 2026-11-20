@@ -17,7 +17,8 @@ use pin_project_lite::pin_project;
 use super::StreamExt;
 
 pin_project! {
-    /// Stream returned by [`StreamExt::default_if_empty()`].
+    /// Stream returned by [`StreamExt::default_if_empty()`] and
+    /// [`StreamExt::default_if_empty_with()`].
     #[must_use = "streams do nothing unless polled"]
     pub struct DefaultIfEmpty<St, F> {
         #[pin]
