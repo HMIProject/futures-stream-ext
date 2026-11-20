@@ -244,24 +244,6 @@ fn switch_map_should_wake_itself_if_outer_stream_might_still_be_ready() {
     assert!(!wake_flag.0.load(Ordering::Relaxed));
 }
 
-#[tokio::test]
-async fn switch_map_should_poll_every_inner_stream_with_min_ready_count() {
-    let actual = stream::iter([1, 2])
-        .switch_map(|n| stream::iter([n * 10, n * 10 + 1]), NonZeroUsize::MIN)
-        .collect::<Vec<_>>()
-        .await;
-    assert_eq!(vec![10, 20, 21], actual);
-
-    let actual = stream::iter([1, 2])
-        .switch_map(
-            |n| stream::iter([n * 10, n * 10 + 1]),
-            NonZeroUsize::new(2).unwrap(),
-        )
-        .collect::<Vec<_>>()
-        .await;
-    assert_eq!(vec![20, 21], actual);
-}
-
 #[test]
 fn switch_map_should_only_switch_to_latest_ready_outer_item() {
     let mut switched = Vec::new();

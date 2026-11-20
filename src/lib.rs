@@ -151,6 +151,27 @@ fn pending_and_wake_if<T>(cx: &mut Context<'_>, stream_maybe_ready: bool) -> Pol
 ///
 /// Runtime-agnostic. Extensions that depend on the Tokio runtime are provided
 /// by `tokio::StreamExt` (requires the `tokio` feature).
+///
+/// # Polling ready items
+///
+/// Some combinators take a `poll_next_max_ready_count` argument. They consume
+/// the items of their input stream that are ready at the same time, but only
+/// act on the latest one. The argument limits how many ready items are
+/// consumed consecutively during a single invocation of [`Stream::poll_next()`].
+/// After reaching the limit, the combinator wakes itself up and continues
+/// during the next invocation. This prevents an endless loop for input streams
+/// that are always ready.
+///
+/// - [`NonZeroUsize::MIN`] is a safe default.
+/// - A greater value skips more items at once and needs fewer self-wakeups.
+///   A good choice is the expected burst size, e.g. the capacity of the
+///   channel that feeds the input stream.
+/// - Use [`NonZeroUsize::MAX`] only if the input stream is guaranteed to become
+///   pending eventually. Otherwise, polling an input stream that is always
+///   ready never returns.
+///
+/// Whether the value also affects which items are yielded is documented for
+/// each combinator.
 pub trait StreamExt: Stream {
     /// Filters out subsequent/adjacent stream items.
     ///
@@ -232,27 +253,12 @@ pub trait StreamExt: Stream {
     ///
     /// The delay is implemented by the given [`Sleep`] type.
     ///
-    /// The `poll_next_max_ready_count` argument controls how many _Ready_ items
-    /// are polled consecutively from the input stream during an invocation
-    /// of [`Stream::poll_next()`] before polling the delay. This limit ensures
-    /// that input streams which are always ready are not polled forever.
-    ///
-    /// # Choosing `poll_next_max_ready_count`
-    ///
-    /// [`NonZeroUsize::MIN`] is a safe default. With a non-zero delay the value
-    /// usually does not affect which items are emitted: items that are ready at
-    /// the same time fall into the same delay window anyway. A greater value only
-    /// reduces the number of delay resets and self-wakeups for bursts of items,
-    /// e.g. the capacity of the channel that feeds the input stream.
-    ///
-    /// With a zero delay, the value determines which items are discarded:
-    /// [`NonZeroUsize::MIN`] emits every item, a greater value emits only the
-    /// latest of up to `poll_next_max_ready_count` items that are ready at the
-    /// same time.
-    ///
-    /// Use [`NonZeroUsize::MAX`] only if the input stream is guaranteed to
-    /// become pending eventually. Otherwise, polling an input stream that is
-    /// always ready never returns.
+    /// See [Polling ready items](StreamExt#polling-ready-items) for choosing
+    /// `poll_next_max_ready_count`. Its value usually does not affect which items
+    /// are emitted, because items that are ready at the same time fall into the
+    /// same delay window anyway. Only with a zero delay, [`NonZeroUsize::MIN`]
+    /// emits every item, while a greater value emits only the latest of up to
+    /// `poll_next_max_ready_count` items that are ready at the same time.
     ///
     /// See also: [`throttle()`](Self::throttle)
     fn debounce_with_sleep<S: Sleep>(
@@ -270,29 +276,13 @@ pub trait StreamExt: Stream {
     ///
     /// The throttler defines the throttling strategy.
     ///
-    /// The `poll_next_max_ready_count` argument controls how many _Ready_ items
-    /// are polled consecutively from the input stream during an invocation
-    /// of [`Stream::poll_next()`] before polling the throttler. This limit
-    /// ensures that input streams which are always ready are not polled forever.
-    ///
-    /// # Choosing `poll_next_max_ready_count`
-    ///
-    /// [`NonZeroUsize::MIN`] polls the input stream only once and is a safe
-    /// default. A greater value skips multiple items that are ready at the same
-    /// time at once, which reduces the number of calls to the throttler and
-    /// self-wakeups. A good choice is the expected burst size of the input
-    /// stream, e.g. the capacity of the channel that feeds it.
-    ///
-    /// The value only affects which items are yielded if the throttler is ready
-    /// while multiple items are ready at the same time: [`NonZeroUsize::MIN`]
-    /// yields the first one, a greater value the latest of up to
-    /// `poll_next_max_ready_count` items. See
+    /// See [Polling ready items](StreamExt#polling-ready-items) for choosing
+    /// `poll_next_max_ready_count`. Its value only affects which items are
+    /// yielded if the throttler is ready while multiple items are ready at the
+    /// same time: [`NonZeroUsize::MIN`] yields the first one, a greater value the
+    /// latest of up to `poll_next_max_ready_count` items. See
     /// [`throttle_interval_with_sleep()`](Self::throttle_interval_with_sleep)
     /// for the impact on interval throttling.
-    ///
-    /// Use [`NonZeroUsize::MAX`] only if the input stream is guaranteed to
-    /// become pending eventually. Otherwise, polling an input stream that is
-    /// always ready never returns.
     fn throttle<Th>(
         self,
         throttler: Th,
@@ -309,11 +299,10 @@ pub trait StreamExt: Stream {
     ///
     /// The interval is implemented by the given [`Sleep`] type.
     ///
-    /// # Choosing `poll_next_max_ready_count`
-    ///
-    /// [`NonZeroUsize::MIN`] is a safe default. The value only affects which
-    /// items are yielded if a tick is ready while multiple items are ready at
-    /// the same time:
+    /// See [Polling ready items](StreamExt#polling-ready-items) for choosing
+    /// `poll_next_max_ready_count`. Its value only affects which items are
+    /// yielded if a tick is ready while multiple items are ready at the same
+    /// time:
     ///
     /// - With [`IntervalEdge::Trailing`], items that are ready at the same time
     ///   fall into the same interval anyway. A greater value only improves the
@@ -348,34 +337,6 @@ pub trait StreamExt: Stream {
     /// The outer stream is polled first. Items of an inner stream are only yielded
     /// while no new outer item is ready.
     ///
-    /// The `poll_next_max_ready_count` argument controls how many _Ready_ outer
-    /// items are consumed at most per poll. Only the inner stream of the latest
-    /// one is created. The limit prevents an endless loop for an outer stream that
-    /// is always ready. After reaching it, the current inner stream is polled
-    /// before the outer stream is polled again.
-    ///
-    /// # Choosing `poll_next_max_ready_count`
-    ///
-    /// Unlike for [`debounce_with_sleep()`](Self::debounce_with_sleep) and
-    /// [`throttle()`](Self::throttle), the value affects the result whenever the
-    /// outer stream yields multiple items at the same time. With
-    /// [`NonZeroUsize::MIN`], an inner stream is created for every outer item
-    /// and polled once before switching to the next one. It may yield items,
-    /// although a newer outer item is already ready. For example, the outer
-    /// stream `stream::iter([1, 2])` with `|n| stream::iter([n * 10, n * 10 + 1])`
-    /// yields `10 20 21` with [`NonZeroUsize::MIN`], but only `20 21` with a value
-    /// of 2 or greater.
-    ///
-    /// Choose a value that is at least as large as the expected burst size of
-    /// the outer stream, e.g. the capacity of the channel that feeds it. Then
-    /// a burst of outer items creates only a single inner stream for the latest
-    /// one. This matters if creating an inner stream is expensive or has side
-    /// effects, e.g. when it subscribes to a resource.
-    ///
-    /// Use [`NonZeroUsize::MAX`] only if the outer stream is guaranteed to
-    /// become pending eventually, e.g. a finite `stream::iter()`. Otherwise,
-    /// polling an outer stream that is always ready never returns.
-    ///
     /// Ends after both the outer stream and the current inner stream ended. An inner
     /// stream that ended is not considered as stale, i.e. its last item remains valid
     /// until the next outer item arrives.
@@ -397,6 +358,38 @@ pub trait StreamExt: Stream {
     /// Inner stream `a` would have yielded `3` later, but is dropped when `b`
     /// arrives. The result does not end when inner stream `b` ends, but only after
     /// both the outer stream and inner stream `c` ended.
+    ///
+    /// # Choosing `poll_next_max_ready_count`
+    ///
+    /// See [Polling ready items](StreamExt#polling-ready-items). Unlike for the
+    /// other combinators, the value affects the result whenever the outer stream
+    /// yields multiple items at the same time. Only the inner stream of the
+    /// latest of up to `poll_next_max_ready_count` ready outer items is created.
+    /// With [`NonZeroUsize::MIN`], an inner stream is created for every outer
+    /// item and polled once before switching to the next one. It may yield
+    /// items, although a newer outer item is already ready:
+    ///
+    /// ```
+    /// use std::num::NonZeroUsize;
+    ///
+    /// use futures_stream_ext::StreamExt as _;
+    /// use futures_util::{FutureExt as _, StreamExt as _, stream};
+    ///
+    /// let switch_map = |poll_next_max_ready_count| {
+    ///     stream::iter([1, 2])
+    ///         .switch_map(|n| stream::iter([n * 10, n * 10 + 1]), poll_next_max_ready_count)
+    ///         .collect::<Vec<_>>()
+    ///         .now_or_never()
+    ///         .unwrap()
+    /// };
+    /// assert_eq!(switch_map(NonZeroUsize::MIN), [10, 20, 21]);
+    /// assert_eq!(switch_map(NonZeroUsize::new(2).unwrap()), [20, 21]);
+    /// ```
+    ///
+    /// Choose a value that is at least as large as the expected burst size of
+    /// the outer stream, so that a burst creates only a single inner stream.
+    /// This matters if creating an inner stream is expensive or has side
+    /// effects, e.g. when it subscribes to a resource.
     ///
     /// # Difference to `flat_map()`
     ///
