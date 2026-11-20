@@ -398,6 +398,13 @@ fn default_if_empty_yields_default_item_after_empty_stream() {
 }
 
 #[test]
+fn default_if_empty_does_not_store_a_function_pointer() {
+    assert_eq!(size_of::<crate::DefaultItem<u32>>(), 0);
+    let stream = stream::iter([1]).default_if_empty();
+    assert!(format!("{stream:?}").starts_with("DefaultIfEmpty { stream: "));
+}
+
+#[test]
 fn default_if_empty_passes_through_non_empty_stream() {
     let mut stream = stream::iter([1, 2]).default_if_empty();
     assert_eq!(poll_next(&mut stream), Poll::Ready(Some(1)));
