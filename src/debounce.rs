@@ -19,8 +19,8 @@ use crate::{Sleep, pending_and_wake_if, poll_latest_ready, reset_or_sleep};
 pin_project! {
     /// Result of [`StreamExt::debounce_with_sleep()`](crate::StreamExt::debounce_with_sleep).
     #[derive(Debug)]
-    #[project = DebouncedProjection]
-    pub struct Debounced<St: Stream, S> {
+    #[project = DebounceProjection]
+    pub struct Debounce<St: Stream, S> {
         #[pin]
         stream: Fuse<St>,
 
@@ -37,7 +37,7 @@ pin_project! {
     }
 }
 
-impl<St: Stream, S: Sleep> Debounced<St, S> {
+impl<St: Stream, S: Sleep> Debounce<St, S> {
     pub(crate) fn new(stream: St, delay: Duration, max_ready_count: NonZeroUsize) -> Self {
         Self {
             stream: stream.fuse(),
@@ -49,7 +49,7 @@ impl<St: Stream, S: Sleep> Debounced<St, S> {
     }
 }
 
-impl<St, S> Stream for Debounced<St, S>
+impl<St, S> Stream for Debounce<St, S>
 where
     St: Stream,
     S: Sleep,
@@ -57,7 +57,7 @@ where
     type Item = St::Item;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let DebouncedProjection {
+        let DebounceProjection {
             mut stream,
             delay,
             max_ready_count,
