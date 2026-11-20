@@ -426,12 +426,29 @@ pub trait StreamExt: Stream {
         EndWith::new(self, make_item)
     }
 
+    /// Yields the default item if this stream ends without yielding any items.
+    ///
+    /// Yields [`Default::default()`] as a final item if the stream ended before
+    /// yielding its first item. Otherwise, the stream is passed through unchanged.
+    /// Equivalent to `defaultIfEmpty` in RxJS.
+    ///
+    /// See also: [`default_if_empty_with()`](Self::default_if_empty_with)
+    fn default_if_empty(self) -> DefaultIfEmpty<Self, fn() -> Self::Item>
+    where
+        Self: Sized,
+        Self::Item: Default,
+    {
+        DefaultIfEmpty::new(self, Self::Item::default as fn() -> Self::Item)
+    }
+
     /// Yields a single item if this stream ends without yielding any items.
     ///
     /// Yields a final item created by `make_item` if the stream ended before
     /// yielding its first item. Otherwise, the stream is passed through unchanged.
     /// Equivalent to `defaultIfEmpty` in RxJS.
-    fn default_if_empty<F>(self, make_item: F) -> DefaultIfEmpty<Self, F>
+    ///
+    /// See also: [`default_if_empty()`](Self::default_if_empty)
+    fn default_if_empty_with<F>(self, make_item: F) -> DefaultIfEmpty<Self, F>
     where
         Self: Sized,
         F: FnOnce() -> Self::Item,

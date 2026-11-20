@@ -381,18 +381,33 @@ fn end_with_accepts_streams_that_are_not_unpin() {
 }
 
 #[test]
-fn end_with_and_default_if_empty_implement_debug_for_closures() {
+fn end_with_and_default_if_empty_with_implement_debug_for_closures() {
     let debug = format!("{:?}", stream::iter([1]).end_with(|| 0));
     assert!(debug.starts_with("EndWith { stream: "), "{debug}");
     assert!(debug.ends_with(", .. }"), "{debug}");
-    let debug = format!("{:?}", stream::iter([1]).default_if_empty(|| 0));
+    let debug = format!("{:?}", stream::iter([1]).default_if_empty_with(|| 0));
     assert!(debug.starts_with("DefaultIfEmpty { stream: "), "{debug}");
     assert!(debug.ends_with(", .. }"), "{debug}");
 }
 
 #[test]
-fn default_if_empty_is_terminated_after_empty_stream_ended() {
-    let mut stream = stream::empty().default_if_empty(|| 0);
+fn default_if_empty_yields_default_item_after_empty_stream() {
+    let mut stream = stream::empty::<u32>().default_if_empty();
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(0)));
+    assert_eq!(poll_next(&mut stream), Poll::Ready(None));
+}
+
+#[test]
+fn default_if_empty_passes_through_non_empty_stream() {
+    let mut stream = stream::iter([1, 2]).default_if_empty();
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(1)));
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(2)));
+    assert_eq!(poll_next(&mut stream), Poll::Ready(None));
+}
+
+#[test]
+fn default_if_empty_with_is_terminated_after_empty_stream_ended() {
+    let mut stream = stream::empty().default_if_empty_with(|| 0);
     assert_eq!(stream.size_hint(), (1, Some(1)));
     assert!(!stream.is_terminated());
     assert_eq!(poll_next(&mut stream), Poll::Ready(Some(0)));
@@ -403,8 +418,8 @@ fn default_if_empty_is_terminated_after_empty_stream_ended() {
 }
 
 #[test]
-fn default_if_empty_is_terminated_after_non_empty_stream_ended() {
-    let mut stream = stream::iter([1, 2]).default_if_empty(|| 0);
+fn default_if_empty_with_is_terminated_after_non_empty_stream_ended() {
+    let mut stream = stream::iter([1, 2]).default_if_empty_with(|| 0);
     assert_eq!(stream.size_hint(), (2, Some(2)));
     assert_eq!(poll_next(&mut stream), Poll::Ready(Some(1)));
     assert_eq!(stream.size_hint(), (1, Some(1)));
@@ -415,15 +430,15 @@ fn default_if_empty_is_terminated_after_non_empty_stream_ended() {
 }
 
 #[test]
-fn default_if_empty_stays_pending_while_stream_is_pending() {
-    let mut stream = stream::pending::<u32>().default_if_empty(|| 0);
+fn default_if_empty_with_stays_pending_while_stream_is_pending() {
+    let mut stream = stream::pending::<u32>().default_if_empty_with(|| 0);
     assert_eq!(poll_next(&mut stream), Poll::Pending);
 }
 
 #[test]
-fn default_if_empty_stays_pending_after_items_while_stream_is_pending() {
+fn default_if_empty_with_stays_pending_after_items_while_stream_is_pending() {
     let queue = Rc::new(RefCell::new(VecDeque::from([1])));
-    let mut stream = queued_stream(&queue).default_if_empty(|| 0);
+    let mut stream = queued_stream(&queue).default_if_empty_with(|| 0);
     assert_eq!(poll_next(&mut stream), Poll::Ready(Some(1)));
     assert_eq!(poll_next(&mut stream), Poll::Pending);
 }
