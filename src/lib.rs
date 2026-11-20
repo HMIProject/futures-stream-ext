@@ -13,7 +13,10 @@ use std::{
     time::Duration,
 };
 
-use futures_util::{Stream, stream::Fuse};
+use futures_util::{FutureExt as _, Stream, StreamExt as _, future, stream::Fuse};
+
+mod debounce;
+pub use self::debounce::Debounced;
 
 mod distinct;
 pub use self::distinct::{
@@ -22,8 +25,8 @@ pub use self::distinct::{
     filter_distinct_until_changed_err, filter_distinct_until_changed_ok,
 };
 
-mod debounce;
-pub use self::debounce::Debounced;
+mod switch_map;
+pub use self::switch_map::SwitchMap;
 
 mod throttle;
 pub use self::throttle::{IntervalThrottler, IntervalThrottlerConfig, Throttled, Throttler};
@@ -278,6 +281,113 @@ pub trait StreamExt: Stream {
         Self: Sized,
     {
         self.throttle(IntervalThrottler::new(config), poll_next_max_ready_count)
+    }
+
+    /// Switches to a new inner stream for each item of the outer stream.
+    ///
+    /// Maps each item of this outer stream to an inner stream with `switch_to` and
+    /// yields the items of the current inner stream. The previous inner stream is
+    /// dropped when the outer stream yields the next item, i.e. its pending items
+    /// are discarded as stale.
+    ///
+    /// The outer stream is polled first. Items of an inner stream are only yielded
+    /// while no new outer item is ready.
+    ///
+    /// The `poll_next_max_ready_count` argument controls how many _Ready_ outer
+    /// items are consumed at most per poll. Only the inner stream of the latest
+    /// one is created. The limit prevents an endless loop for an outer stream that
+    /// is always ready. After reaching it, the current inner stream is polled
+    /// before the outer stream is polled again.
+    ///
+    /// Ends after both the outer stream and the current inner stream ended. An inner
+    /// stream that ended is not considered as stale, i.e. its last item remains valid
+    /// until the next outer item arrives.
+    ///
+    /// Equivalent to `switchMap` in RxJS. In the following marble diagram, time
+    /// passes from left to right, `|` marks the end of a stream, and `!` marks
+    /// where an inner stream is dropped. The outer items `a`, `b`, and `c` are
+    /// mapped to the inner streams in the lines below them, which start in the
+    /// same column.
+    ///
+    /// ```text
+    /// outer:   --a---------b-------c--|
+    /// inner a:   --1---2---!
+    /// inner b:             ----4-|
+    /// inner c:                     --5---6-|
+    /// result:  ----1---2-------4-----5---6-|
+    /// ```
+    ///
+    /// Inner stream `a` would have yielded `3` later, but is dropped when `b`
+    /// arrives. The result does not end when inner stream `b` ends, but only after
+    /// both the outer stream and inner stream `c` ended.
+    ///
+    /// # Difference to `flat_map()`
+    ///
+    /// [`flat_map()`](futures_util::StreamExt::flat_map) also maps each outer item
+    /// to an inner stream, but drains each inner stream completely before it polls
+    /// the outer stream for the next item. No item is discarded, but new outer items
+    /// wait until the current inner stream ended. With an inner stream `a` that
+    /// yields `1`, `2`, `3` and then ends, `flat_map()` yields `1 2 3 4 5 6` instead
+    /// of `1 2 4 5 6`, and an inner stream that never ends blocks all further outer
+    /// items. This corresponds to `concatMap` in RxJS, not to RxJS' `flatMap`,
+    /// which is an alias of `mergeMap` and polls all inner streams concurrently.
+    ///
+    /// Use `switch_map()` if only the inner stream of the latest outer item is
+    /// relevant, e.g. when the outer stream yields the current configuration and
+    /// the inner stream observes data that depends on it.
+    fn switch_map<U, F>(
+        self,
+        switch_to: F,
+        poll_next_max_ready_count: NonZeroUsize,
+    ) -> SwitchMap<Self, U, F>
+    where
+        Self: Sized,
+        U: Stream,
+        F: FnMut(Self::Item) -> U,
+    {
+        SwitchMap::new(self, switch_to, poll_next_max_ready_count)
+    }
+
+    /// Yields a final item after this stream ended.
+    ///
+    /// The item is created by `make_item` only after the stream ended.
+    /// Equivalent to `endWith` in RxJS.
+    ///
+    /// Intended for finite streams whose last item becomes invalid when they
+    /// end, e.g. by yielding an error as the final item. Consumers consider the
+    /// last item of a finite stream as valid indefinitely otherwise.
+    fn end_with(self, make_item: impl FnOnce() -> Self::Item) -> impl Stream<Item = Self::Item>
+    where
+        Self: Sized,
+    {
+        self.chain(future::lazy(|_cx| make_item()).into_stream())
+    }
+
+    /// Yields a single item if this stream ends without yielding any items.
+    ///
+    /// Yields a final item created by `make_item` if the stream ended before
+    /// yielding its first item. Otherwise, the stream is passed through unchanged.
+    /// Equivalent to `defaultIfEmpty` in RxJS.
+    fn default_if_empty(
+        self,
+        make_item: impl FnOnce() -> Self::Item,
+    ) -> impl Stream<Item = Self::Item>
+    where
+        Self: Sized,
+    {
+        let mut make_item = Some(make_item);
+        self.map(Some)
+            .chain(future::ready(None).into_stream())
+            .filter_map(move |next| {
+                let item = match next {
+                    Some(item) => {
+                        make_item = None;
+                        Some(item)
+                    }
+                    None => make_item.take().map(|make_item| make_item()),
+                };
+                future::ready(item)
+            })
     }
 }
 
