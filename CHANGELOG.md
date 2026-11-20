@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `StreamExt::default_if_empty()` and the stream type `DefaultIfEmpty` yield a single item if the stream ends without yielding any items, like `defaultIfEmpty` in RxJS.
 - The stream types `SwitchMap`, `EndWith` and `DefaultIfEmpty` implement `FusedStream`.
 
+### Changed
+
+- **Breaking:** The stream types `Debounced` and `Throttled` were renamed to `Debounce` and `Throttle`, matching the names of the methods that return them.
+
 ## [0.6.1] - 2026-11-20
 
 ### Added

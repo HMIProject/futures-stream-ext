@@ -45,10 +45,10 @@ pub trait Throttler<T>: Stream<Item = ()> {
 }
 
 pin_project! {
-    /// Throttled stream
+    /// Result of [`StreamExt::throttle()`](crate::StreamExt::throttle).
     #[derive(Debug)]
     #[must_use = "streams do nothing unless polled or .awaited"]
-    pub struct Throttled<St: Stream, Th: Throttler<<St as Stream>::Item>> {
+    pub struct Throttle<St: Stream, Th: Throttler<<St as Stream>::Item>> {
         #[pin]
         stream: Fuse<St>,
         #[pin]
@@ -61,7 +61,7 @@ pin_project! {
     }
 }
 
-impl<St, Th> Throttled<St, Th>
+impl<St, Th> Throttle<St, Th>
 where
     St: Stream,
     Th: Throttler<<St as Stream>::Item>,
@@ -77,7 +77,7 @@ where
     }
 }
 
-impl<St, Th> Stream for Throttled<St, Th>
+impl<St, Th> Stream for Throttle<St, Th>
 where
     St: Stream,
     Th: Throttler<<St as Stream>::Item>,
