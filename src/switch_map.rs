@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: The futures-stream-ext authors
+// SPDX-License-Identifier: MPL-2.0
+
 use std::{
     fmt,
     num::NonZeroUsize,
