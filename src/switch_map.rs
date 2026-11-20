@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     num::NonZeroUsize,
     pin::Pin,
     task::{Context, Poll},
@@ -17,7 +18,6 @@ use super::StreamExt;
 
 pin_project! {
     /// Stream returned by [`StreamExt::switch_map()`].
-    #[derive(Debug)]
     #[must_use = "streams do nothing unless polled"]
     pub struct SwitchMap<S, U, F> {
         #[pin]
@@ -30,6 +30,21 @@ pin_project! {
         switch_to: F,
 
         poll_next_max_ready_count: NonZeroUsize,
+    }
+}
+
+// Implemented manually, because closures do not implement `Debug`.
+impl<S, U, F> fmt::Debug for SwitchMap<S, U, F>
+where
+    S: fmt::Debug,
+    U: fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SwitchMap")
+            .field("outer", &self.outer)
+            .field("inner", &self.inner)
+            .field("poll_next_max_ready_count", &self.poll_next_max_ready_count)
+            .finish_non_exhaustive()
     }
 }
 

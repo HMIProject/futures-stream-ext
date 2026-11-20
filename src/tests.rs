@@ -280,6 +280,19 @@ fn switch_map_should_not_be_terminated_while_outer_continues() {
 }
 
 #[test]
+fn switch_map_should_implement_debug_for_closures() {
+    let mut stream = stream::iter([1]).switch_map(|n| stream::iter([n * 10]), NonZeroUsize::MIN);
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(10)));
+    let debug = format!("{stream:?}");
+    assert!(debug.starts_with("SwitchMap { outer: "), "{debug}");
+    assert!(debug.contains("inner: Some("), "{debug}");
+    assert!(
+        debug.ends_with(", poll_next_max_ready_count: 1, .. }"),
+        "{debug}"
+    );
+}
+
+#[test]
 fn default_if_empty_yields_item_after_empty_stream() {
     let mut stream = pin!(stream::empty().default_if_empty(|| 0));
     assert_eq!(poll_next(&mut stream), Poll::Ready(Some(0)));
