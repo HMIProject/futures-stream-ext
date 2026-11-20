@@ -42,9 +42,17 @@ async fn should_filter_out_adjacent_items_with_the_same_key() {
     let input = futures_util::stream::iter([1, 1, 2, 1, 2, 2, 4, 5, 2, 3, 3, 7]);
     let expected = vec![1, 2, 1, 2, 4, 2, 7];
     let actual = input
-        .dedup_by_key(None, |item| Some(item / 2))
+        .dedup_by_key(|item| item / 2)
         .collect::<Vec<_>>()
         .await;
+    assert_eq!(expected, actual);
+}
+
+#[tokio::test]
+async fn should_pass_through_the_first_item_regardless_of_its_key() {
+    let input = futures_util::stream::iter([0, 0, 1]);
+    let expected = vec![0, 1];
+    let actual = input.dedup_by_key(|item| *item).collect::<Vec<_>>().await;
     assert_eq!(expected, actual);
 }
 
@@ -95,7 +103,7 @@ async fn should_be_terminated_after_a_fused_input_stream_has_finished() {
     let results = || futures_util::stream::iter([Ok::<_, ()>(1), Err(()), Ok(1)]).fuse();
     assert_terminated_after_finished(items().dedup()).await;
     assert_terminated_after_finished(items().dedup_by(|lhs, rhs| lhs == rhs)).await;
-    assert_terminated_after_finished(items().dedup_by_key(None, |item| Some(*item))).await;
+    assert_terminated_after_finished(items().dedup_by_key(|item| *item)).await;
     assert_terminated_after_finished(results().dedup_ok()).await;
     assert_terminated_after_finished(results().dedup_err()).await;
 }

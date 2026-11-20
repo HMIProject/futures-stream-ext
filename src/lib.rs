@@ -210,15 +210,16 @@ pub trait StreamExt: Stream {
     /// The key of each stream item is extracted once and the items are
     /// passed through unmodified.
     /// The last key is stored until a different key occurs.
+    /// The first item is always passed through, like [`Vec::dedup_by_key()`].
     ///
     /// See also: [`dedup()`](Self::dedup)
-    fn dedup_by_key<K, F>(self, initial_key: K, key_fn: F) -> DedupByKey<Self, K, F>
+    fn dedup_by_key<K, F>(self, key_fn: F) -> DedupByKey<Self, K, F>
     where
         Self: Sized,
         K: PartialEq,
         F: FnMut(&Self::Item) -> K,
     {
-        DedupByKey::new(self, initial_key, key_fn)
+        DedupByKey::new(self, key_fn)
     }
 
     /// Filters out subsequent/adjacent `Ok` items in a result stream.
