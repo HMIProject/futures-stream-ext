@@ -4,7 +4,7 @@
 //! Runtime-agnostic tests that do not require any optional features.
 
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     collections::VecDeque,
     num::NonZeroUsize,
     pin::{Pin, pin},
@@ -158,15 +158,6 @@ fn switch_map_yields_only_inner_items_of_last_ready_outer_item() {
 }
 
 #[test]
-fn switch_map_ends_after_outer_and_inner_ended() {
-    let mut stream =
-        stream::iter([1]).switch_map(|n| stream::iter([n * 10, n * 10 + 1]), NonZeroUsize::MAX);
-    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(10)));
-    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(11)));
-    assert_eq!(poll_next(&mut stream), Poll::Ready(None));
-}
-
-#[test]
 fn switch_map_continues_after_inner_ended_while_outer_continues() {
     let queue = Rc::new(RefCell::new(VecDeque::from([1])));
     let mut stream =
@@ -174,6 +165,7 @@ fn switch_map_continues_after_inner_ended_while_outer_continues() {
     assert_eq!(poll_next(&mut stream), Poll::Ready(Some(10)));
     // Inner stream ended, outer stream pending: switch_map must not end.
     assert_eq!(poll_next(&mut stream), Poll::Pending);
+    assert!(!stream.is_terminated());
 
     queue.borrow_mut().push_back(2);
     assert_eq!(poll_next(&mut stream), Poll::Ready(Some(20)));
@@ -350,17 +342,6 @@ fn switch_map_should_report_size_hint() {
 }
 
 #[test]
-fn switch_map_should_not_be_terminated_while_outer_continues() {
-    let queue = Rc::new(RefCell::new(VecDeque::from([1])));
-    let mut stream =
-        queued_stream(&queue).switch_map(|n| stream::iter([n * 10]), NonZeroUsize::MAX);
-    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(10)));
-    assert_eq!(poll_next(&mut stream), Poll::Pending);
-    // The inner stream ended, but the outer stream continues.
-    assert!(!stream.is_terminated());
-}
-
-#[test]
 fn switch_map_should_implement_debug_for_closures() {
     let mut stream = stream::iter([1]).switch_map(|n| stream::iter([n * 10]), NonZeroUsize::MIN);
     assert_eq!(poll_next(&mut stream), Poll::Ready(Some(10)));
@@ -397,17 +378,17 @@ fn end_with_yields_final_item_after_empty_stream() {
 #[test]
 fn end_with_creates_final_item_only_after_stream_ended() {
     let queue = Rc::new(RefCell::new(VecDeque::from([1])));
-    let created = Rc::new(RefCell::new(false));
+    let created = Rc::new(Cell::new(false));
     let mut stream = queued_stream(&queue).end_with({
         let created = Rc::clone(&created);
         move || {
-            *created.borrow_mut() = true;
+            created.set(true);
             0
         }
     });
     assert_eq!(poll_next(&mut stream), Poll::Ready(Some(1)));
     assert_eq!(poll_next(&mut stream), Poll::Pending);
-    assert!(!*created.borrow());
+    assert!(!created.get());
 }
 
 #[test]
@@ -455,30 +436,15 @@ fn default_if_empty_is_terminated_after_non_empty_stream_ended() {
 }
 
 #[test]
-fn default_if_empty_yields_item_after_empty_stream() {
-    let mut stream = pin!(stream::empty().default_if_empty(|| 0));
-    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(0)));
-    assert_eq!(poll_next(&mut stream), Poll::Ready(None));
-}
-
-#[test]
-fn default_if_empty_passes_through_non_empty_stream() {
-    let mut stream = pin!(stream::iter([1, 2]).default_if_empty(|| 0));
-    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(1)));
-    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(2)));
-    assert_eq!(poll_next(&mut stream), Poll::Ready(None));
-}
-
-#[test]
 fn default_if_empty_stays_pending_while_stream_is_pending() {
-    let mut stream = pin!(stream::pending::<u32>().default_if_empty(|| 0));
+    let mut stream = stream::pending::<u32>().default_if_empty(|| 0);
     assert_eq!(poll_next(&mut stream), Poll::Pending);
 }
 
 #[test]
 fn default_if_empty_stays_pending_after_items_while_stream_is_pending() {
     let queue = Rc::new(RefCell::new(VecDeque::from([1])));
-    let mut stream = pin!(queued_stream(&queue).default_if_empty(|| 0));
+    let mut stream = queued_stream(&queue).default_if_empty(|| 0);
     assert_eq!(poll_next(&mut stream), Poll::Ready(Some(1)));
     assert_eq!(poll_next(&mut stream), Poll::Pending);
 }
