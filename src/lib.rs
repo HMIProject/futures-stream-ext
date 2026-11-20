@@ -16,17 +16,16 @@ use std::{
 use futures_util::{Stream, stream::Fuse};
 
 mod debounce;
-pub use self::debounce::Debounced;
+pub use self::debounce::Debounce;
+
+mod dedup;
+pub use self::dedup::{
+    Dedup, DedupBy, DedupByKey, DedupErr, DedupOk, DedupState, filter_dedup, filter_dedup_err,
+    filter_dedup_ok,
+};
 
 mod default_if_empty;
-pub use self::default_if_empty::DefaultIfEmpty;
-
-mod distinct;
-pub use self::distinct::{
-    DistinctState, DistinctUntilChanged, DistinctUntilChangedBy, DistinctUntilChangedByKey,
-    DistinctUntilChangedErr, DistinctUntilChangedOk, filter_distinct_until_changed,
-    filter_distinct_until_changed_err, filter_distinct_until_changed_ok,
-};
+pub use self::default_if_empty::{DefaultIfEmpty, DefaultItem, MakeItem};
 
 mod end_with;
 pub use self::end_with::EndWith;
@@ -35,7 +34,7 @@ mod switch_map;
 pub use self::switch_map::SwitchMap;
 
 mod throttle;
-pub use self::throttle::{IntervalThrottler, IntervalThrottlerConfig, Throttled, Throttler};
+pub use self::throttle::{IntervalThrottler, IntervalThrottlerConfig, Throttle, Throttler};
 
 #[cfg(feature = "tokio")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tokio")))]
@@ -175,30 +174,34 @@ fn pending_and_wake_if<T>(cx: &mut Context<'_>, stream_maybe_ready: bool) -> Pol
 pub trait StreamExt: Stream {
     /// Filters out subsequent/adjacent stream items.
     ///
-    /// See also: [`filter_distinct_until_changed()`]
-    fn distinct_until_changed(self) -> DistinctUntilChanged<Self>
+    /// Equivalent to `distinctUntilChanged` in RxJS.
+    ///
+    /// See also: [`filter_dedup()`]
+    fn dedup(self) -> Dedup<Self>
     where
         Self: Sized,
         Self::Item: Clone + PartialEq,
     {
-        DistinctUntilChanged::new(self)
+        Dedup::new(self)
     }
 
     /// Filters out subsequent/adjacent stream items that are equal according to `eq_fn`.
     ///
-    /// `eq_fn` is invoked with the last passed through item and the next item.
-    /// The next item is discarded if `eq_fn` returns `true`.
+    /// `eq_fn` is invoked with the last passed through item and the next item,
+    /// in this order. The next item is discarded if `eq_fn` returns `true`.
+    /// The order matches `Itertools::dedup_by()`, but is the opposite of
+    /// [`Vec::dedup_by()`], which passes the next element first.
     /// Each passed through item is cloned once and stored until it is replaced
     /// by the next item that is not equal.
     ///
-    /// See also: [`distinct_until_changed()`](Self::distinct_until_changed)
-    fn distinct_until_changed_by<F>(self, eq_fn: F) -> DistinctUntilChangedBy<Self, F>
+    /// See also: [`dedup()`](Self::dedup)
+    fn dedup_by<F>(self, eq_fn: F) -> DedupBy<Self, F>
     where
         Self: Sized,
         Self::Item: Clone,
         F: FnMut(&Self::Item, &Self::Item) -> bool,
     {
-        DistinctUntilChangedBy::new(self, eq_fn)
+        DedupBy::new(self, eq_fn)
     }
 
     /// Filters out subsequent/adjacent stream items with the same key.
@@ -207,41 +210,38 @@ pub trait StreamExt: Stream {
     /// The key of each stream item is extracted once and the items are
     /// passed through unmodified.
     /// The last key is stored until a different key occurs.
+    /// The first item is always passed through, like [`Vec::dedup_by_key()`].
     ///
-    /// See also: [`distinct_until_changed()`](Self::distinct_until_changed)
-    fn distinct_until_changed_by_key<K, F>(
-        self,
-        initial_key: K,
-        key_fn: F,
-    ) -> DistinctUntilChangedByKey<Self, K, F>
+    /// See also: [`dedup()`](Self::dedup)
+    fn dedup_by_key<K, F>(self, key_fn: F) -> DedupByKey<Self, K, F>
     where
         Self: Sized,
         K: PartialEq,
         F: FnMut(&Self::Item) -> K,
     {
-        DistinctUntilChangedByKey::new(self, initial_key, key_fn)
+        DedupByKey::new(self, key_fn)
     }
 
     /// Filters out subsequent/adjacent `Ok` items in a result stream.
     ///
-    /// See also: [`filter_distinct_until_changed_ok()`]
-    fn distinct_until_changed_ok<T, E>(self) -> DistinctUntilChangedOk<Self, T>
+    /// See also: [`filter_dedup_ok()`]
+    fn dedup_ok<T, E>(self) -> DedupOk<Self, T>
     where
         Self: Stream<Item = Result<T, E>> + Sized,
         T: Clone + PartialEq,
     {
-        DistinctUntilChangedOk::new(self)
+        DedupOk::new(self)
     }
 
     /// Filters out subsequent/adjacent `Err` items in a result stream.
     ///
-    /// See also: [`filter_distinct_until_changed_err()`]
-    fn distinct_until_changed_err<T, E>(self) -> DistinctUntilChangedErr<Self, E>
+    /// See also: [`filter_dedup_err()`]
+    fn dedup_err<T, E>(self) -> DedupErr<Self, E>
     where
         Self: Stream<Item = Result<T, E>> + Sized,
         E: Clone + PartialEq,
     {
-        DistinctUntilChangedErr::new(self)
+        DedupErr::new(self)
     }
 
     /// Debounces an input stream.
@@ -265,11 +265,11 @@ pub trait StreamExt: Stream {
         self,
         delay: Duration,
         max_ready_count: NonZeroUsize,
-    ) -> Debounced<Self, S>
+    ) -> Debounce<Self, S>
     where
         Self: Sized,
     {
-        Debounced::new(self, delay, max_ready_count)
+        Debounce::new(self, delay, max_ready_count)
     }
 
     /// Throttles an input stream.
@@ -283,12 +283,12 @@ pub trait StreamExt: Stream {
     /// latest of up to `max_ready_count` items. See
     /// [`throttle_interval_with_sleep()`](Self::throttle_interval_with_sleep)
     /// for the impact on interval throttling.
-    fn throttle<Th>(self, throttler: Th, max_ready_count: NonZeroUsize) -> Throttled<Self, Th>
+    fn throttle<Th>(self, throttler: Th, max_ready_count: NonZeroUsize) -> Throttle<Self, Th>
     where
         Self: Sized,
         Th: Throttler<Self::Item>,
     {
-        Throttled::new(self, throttler, max_ready_count)
+        Throttle::new(self, throttler, max_ready_count)
     }
 
     /// Throttles an input stream by using a fixed interval.
@@ -316,7 +316,7 @@ pub trait StreamExt: Stream {
         self,
         config: IntervalThrottlerConfig,
         max_ready_count: NonZeroUsize,
-    ) -> Throttled<Self, IntervalThrottler<S>>
+    ) -> Throttle<Self, IntervalThrottler<S>>
     where
         Self: Sized,
     {
@@ -426,12 +426,29 @@ pub trait StreamExt: Stream {
         EndWith::new(self, make_item)
     }
 
+    /// Yields the default item if this stream ends without yielding any items.
+    ///
+    /// Yields [`Default::default()`] as a final item if the stream ended before
+    /// yielding its first item. Otherwise, the stream is passed through unchanged.
+    /// Equivalent to `defaultIfEmpty` in RxJS.
+    ///
+    /// See also: [`default_if_empty_with()`](Self::default_if_empty_with)
+    fn default_if_empty(self) -> DefaultIfEmpty<Self, DefaultItem<Self::Item>>
+    where
+        Self: Sized,
+        Self::Item: Default,
+    {
+        DefaultIfEmpty::new(self, DefaultItem::new())
+    }
+
     /// Yields a single item if this stream ends without yielding any items.
     ///
     /// Yields a final item created by `make_item` if the stream ended before
     /// yielding its first item. Otherwise, the stream is passed through unchanged.
     /// Equivalent to `defaultIfEmpty` in RxJS.
-    fn default_if_empty<F>(self, make_item: F) -> DefaultIfEmpty<Self, F>
+    ///
+    /// See also: [`default_if_empty()`](Self::default_if_empty)
+    fn default_if_empty_with<F>(self, make_item: F) -> DefaultIfEmpty<Self, F>
     where
         Self: Sized,
         F: FnOnce() -> Self::Item,

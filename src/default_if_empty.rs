@@ -3,6 +3,7 @@
 
 use std::{
     fmt,
+    marker::PhantomData,
     pin::Pin,
     task::{Context, Poll, ready},
 };
@@ -16,8 +17,63 @@ use pin_project_lite::pin_project;
 #[cfg(doc)]
 use super::StreamExt;
 
+/// Creates the item that [`DefaultIfEmpty`] yields for an empty stream.
+///
+/// Implemented for closures and for [`DefaultItem`].
+///
+/// [`DefaultIfEmpty`] needs this trait, because a closure bound alone would
+/// not accept [`DefaultItem`]: custom types cannot implement [`FnOnce`] on
+/// stable Rust.
+pub trait MakeItem<T> {
+    /// Creates the item.
+    fn make_item(self) -> T;
+}
+
+// Does not conflict with the impl for `DefaultItem`, because `FnOnce` is a
+// fundamental trait: the compiler may rely on `DefaultItem` not implementing
+// it, because only this crate could add that impl.
+impl<T, F> MakeItem<T> for F
+where
+    F: FnOnce() -> T,
+{
+    fn make_item(self) -> T {
+        self()
+    }
+}
+
+/// Creates [`Default::default()`].
+///
+/// Used by [`StreamExt::default_if_empty()`] instead of the function pointer
+/// `fn() -> T`. A function pointer would add its size to [`DefaultIfEmpty`]
+/// and would be invoked indirectly. `DefaultItem` has no size and invokes
+/// [`Default::default()`] statically.
+// `PhantomData<fn() -> T>` instead of `PhantomData<T>`: `DefaultItem` never
+// owns a `T`. It is `Send`, `Sync` and `Unpin` regardless of `T`, and it is
+// covariant in `T`.
+pub struct DefaultItem<T>(PhantomData<fn() -> T>);
+
+impl<T> DefaultItem<T> {
+    pub(super) const fn new() -> Self {
+        Self(PhantomData)
+    }
+}
+
+// Implemented manually to avoid requiring `T: Debug`.
+impl<T> fmt::Debug for DefaultItem<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("DefaultItem")
+    }
+}
+
+impl<T: Default> MakeItem<T> for DefaultItem<T> {
+    fn make_item(self) -> T {
+        T::default()
+    }
+}
+
 pin_project! {
-    /// Stream returned by [`StreamExt::default_if_empty()`].
+    /// Stream returned by [`StreamExt::default_if_empty()`] and
+    /// [`StreamExt::default_if_empty_with()`].
     #[must_use = "streams do nothing unless polled"]
     pub struct DefaultIfEmpty<St, F> {
         #[pin]
@@ -56,7 +112,7 @@ where
 impl<St, F> Stream for DefaultIfEmpty<St, F>
 where
     St: Stream,
-    F: FnOnce() -> St::Item,
+    F: MakeItem<St::Item>,
 {
     type Item = St::Item;
 
@@ -68,7 +124,7 @@ where
                 *this.make_item = None;
                 Some(item)
             }
-            None => this.make_item.take().map(|make_item| make_item()),
+            None => this.make_item.take().map(MakeItem::make_item),
         };
         Poll::Ready(next)
     }
@@ -86,7 +142,7 @@ where
 impl<St, F> FusedStream for DefaultIfEmpty<St, F>
 where
     St: Stream,
-    F: FnOnce() -> St::Item,
+    F: MakeItem<St::Item>,
 {
     fn is_terminated(&self) -> bool {
         self.stream.is_terminated() && self.make_item.is_none()
