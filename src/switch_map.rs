@@ -107,6 +107,14 @@ where
         // Woken up by the outer stream, or by ourselves if it might still be ready.
         pending_and_wake_if(cx, outer_maybe_ready)
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        if !self.outer.is_terminated() {
+            // The current inner stream could be replaced at any time.
+            return (0, None);
+        }
+        self.inner.as_ref().map_or((0, Some(0)), Stream::size_hint)
+    }
 }
 
 impl<S, U, F> FusedStream for SwitchMap<S, U, F>

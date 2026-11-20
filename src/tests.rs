@@ -305,6 +305,31 @@ fn switch_map_should_be_terminated_after_outer_and_inner_ended() {
 }
 
 #[test]
+fn switch_map_should_report_size_hint() {
+    let queue = Rc::new(RefCell::new(VecDeque::from([1])));
+    let mut stream =
+        queued_stream(&queue).switch_map(|n| stream::iter([n * 10]), NonZeroUsize::MAX);
+    // The outer stream continues.
+    assert_eq!(stream.size_hint(), (0, None));
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(10)));
+    assert_eq!(stream.size_hint(), (0, None));
+
+    let mut stream =
+        stream::iter([1]).switch_map(|n| stream::iter([n * 10, n * 10 + 1]), NonZeroUsize::MAX);
+    assert_eq!(stream.size_hint(), (0, None));
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(10)));
+    // The outer stream ended, so only the remaining items of the inner stream follow.
+    assert_eq!(stream.size_hint(), (1, Some(1)));
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(11)));
+    assert_eq!(poll_next(&mut stream), Poll::Ready(None));
+    assert_eq!(stream.size_hint(), (0, Some(0)));
+
+    let mut stream = stream::empty::<u32>().switch_map(|n| stream::iter([n]), NonZeroUsize::MIN);
+    assert_eq!(poll_next(&mut stream), Poll::Ready(None));
+    assert_eq!(stream.size_hint(), (0, Some(0)));
+}
+
+#[test]
 fn switch_map_should_not_be_terminated_while_outer_continues() {
     let queue = Rc::new(RefCell::new(VecDeque::from([1])));
     let mut stream =
