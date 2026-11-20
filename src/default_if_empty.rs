@@ -20,11 +20,18 @@ use super::StreamExt;
 /// Creates the item that [`DefaultIfEmpty`] yields for an empty stream.
 ///
 /// Implemented for closures and for [`DefaultItem`].
+///
+/// [`DefaultIfEmpty`] needs this trait, because a closure bound alone would
+/// not accept [`DefaultItem`]: custom types cannot implement [`FnOnce`] on
+/// stable Rust.
 pub trait MakeItem<T> {
     /// Creates the item.
     fn make_item(self) -> T;
 }
 
+// Does not conflict with the impl for `DefaultItem`, because `FnOnce` is a
+// fundamental trait: the compiler may rely on `DefaultItem` not implementing
+// it, because only this crate could add that impl.
 impl<T, F> MakeItem<T> for F
 where
     F: FnOnce() -> T,
@@ -36,8 +43,13 @@ where
 
 /// Creates [`Default::default()`].
 ///
-/// Used by [`StreamExt::default_if_empty()`]. Unlike a function pointer, it
-/// has no size and is invoked statically.
+/// Used by [`StreamExt::default_if_empty()`] instead of the function pointer
+/// `fn() -> T`. A function pointer would add its size to [`DefaultIfEmpty`]
+/// and would be invoked indirectly. `DefaultItem` has no size and invokes
+/// [`Default::default()`] statically.
+// `PhantomData<fn() -> T>` instead of `PhantomData<T>`: `DefaultItem` never
+// owns a `T`. It is `Send`, `Sync` and `Unpin` regardless of `T`, and it is
+// covariant in `T`.
 pub struct DefaultItem<T>(PhantomData<fn() -> T>);
 
 impl<T> DefaultItem<T> {
