@@ -289,6 +289,26 @@ fn switch_map_should_only_switch_to_latest_ready_outer_item() {
 }
 
 #[test]
+fn switch_map_should_drop_switch_to_after_outer_ended() {
+    let captured = Rc::new(());
+    let mut stream = stream::iter([1]).switch_map(
+        {
+            let captured = Rc::clone(&captured);
+            move |n| {
+                let _ = &captured;
+                stream::iter([n * 10]).chain(stream::pending())
+            }
+        },
+        NonZeroUsize::MAX,
+    );
+    assert_eq!(Rc::strong_count(&captured), 2);
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(10)));
+    // The outer stream ended, but the inner stream is still active.
+    assert_eq!(poll_next(&mut stream), Poll::Pending);
+    assert_eq!(Rc::strong_count(&captured), 1);
+}
+
+#[test]
 fn switch_map_should_be_terminated_after_outer_and_inner_ended() {
     let queue = Rc::new(RefCell::new(VecDeque::from([1])));
     let mut stream = queued_stream(&queue)

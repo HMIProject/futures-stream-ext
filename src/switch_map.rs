@@ -30,7 +30,9 @@ pin_project! {
         #[pin]
         inner: Option<U>,
 
-        switch_to: F,
+        // `None` after the outer stream ended. Drops the captured state early,
+        // while the last inner stream is still active.
+        switch_to: Option<F>,
 
         poll_next_max_ready_count: NonZeroUsize,
     }
@@ -59,7 +61,7 @@ impl<S, U, F> SwitchMap<S, U, F> {
         Self {
             outer: outer.fuse(),
             inner: None,
-            switch_to,
+            switch_to: Some(switch_to),
             poll_next_max_ready_count,
         }
     }
@@ -90,7 +92,14 @@ where
             // might even cause a deadlock. Overlapping is pointless anyway,
             // because the stale items are discarded.
             this.inner.set(None);
-            this.inner.set(Some((this.switch_to)(item)));
+            let switch_to = this
+                .switch_to
+                .as_mut()
+                .expect("switch_to must exist until the outer stream ended");
+            this.inner.set(Some(switch_to(item)));
+        }
+        if this.outer.is_terminated() {
+            *this.switch_to = None;
         }
 
         if let Some(inner_stream) = this.inner.as_mut().as_pin_mut() {
