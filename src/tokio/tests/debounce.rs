@@ -71,7 +71,7 @@ async fn debounce_schedule(
     debounce_schedule_with_max_ready_count(debounce_delay, schedule, NonZeroUsize::MIN).await
 }
 
-/// Like [`debounce_schedule()`], but with a custom `poll_next_max_ready_count`.
+/// Like [`debounce_schedule()`], but with a custom `max_ready_count`.
 ///
 /// Runs both with [`tokio::time::Sleep`] and [`DefaultResetSleep`], which
 /// must produce the same results. Debouncing always restarts the delay from
@@ -79,12 +79,12 @@ async fn debounce_schedule(
 async fn debounce_schedule_with_max_ready_count(
     debounce_delay: Duration,
     schedule: impl IntoIterator<Item = (u64, usize)> + Clone,
-    poll_next_max_ready_count: NonZeroUsize,
+    max_ready_count: NonZeroUsize,
 ) -> Vec<(u128, usize)> {
     let collected = debounce_schedule_with_sleep::<tokio::time::Sleep>(
         debounce_delay,
         schedule.clone(),
-        poll_next_max_ready_count,
+        max_ready_count,
     )
     .await;
     assert_eq!(
@@ -92,7 +92,7 @@ async fn debounce_schedule_with_max_ready_count(
         debounce_schedule_with_sleep::<DefaultResetSleep>(
             debounce_delay,
             schedule,
-            poll_next_max_ready_count,
+            max_ready_count,
         )
         .await
     );
@@ -102,11 +102,11 @@ async fn debounce_schedule_with_max_ready_count(
 async fn debounce_schedule_with_sleep<S: Sleep>(
     debounce_delay: Duration,
     schedule: impl IntoIterator<Item = (u64, usize)>,
-    poll_next_max_ready_count: NonZeroUsize,
+    max_ready_count: NonZeroUsize,
 ) -> Vec<(u128, usize)> {
     let started_at = Instant::now();
     let debounced = scheduled_stream(started_at, schedule)
-        .debounce_with_sleep::<S>(debounce_delay, poll_next_max_ready_count);
+        .debounce_with_sleep::<S>(debounce_delay, max_ready_count);
     collect_with_millis(started_at, debounced).await
 }
 

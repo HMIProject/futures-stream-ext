@@ -53,7 +53,7 @@ pin_project! {
         stream: Fuse<St>,
         #[pin]
         throttler: Th,
-        poll_next_max_ready_count: NonZeroUsize,
+        max_ready_count: NonZeroUsize,
         pending_item: Option<St::Item>,
         // Set until `on_first_item` has been called and
         // again after `on_tick` has been called with `None`.
@@ -66,11 +66,11 @@ where
     St: Stream,
     Th: Throttler<<St as Stream>::Item>,
 {
-    pub(crate) fn new(stream: St, throttler: Th, poll_next_max_ready_count: NonZeroUsize) -> Self {
+    pub(crate) fn new(stream: St, throttler: Th, max_ready_count: NonZeroUsize) -> Self {
         Self {
             stream: stream.fuse(),
             throttler,
-            poll_next_max_ready_count,
+            max_ready_count,
             pending_item: None,
             throttler_idle: true,
         }
@@ -89,7 +89,7 @@ where
 
         // We want to receive the most recent item that is ready.
         let (latest_item, stream_maybe_ready) =
-            poll_latest_ready(this.stream.as_mut(), cx, *this.poll_next_max_ready_count);
+            poll_latest_ready(this.stream.as_mut(), cx, *this.max_ready_count);
         if let Some(latest_item) = latest_item {
             if *this.throttler_idle {
                 *this.throttler_idle = false;
