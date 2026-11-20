@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `StreamExt::switch_map()` and the stream type `SwitchMap` map each item to an inner stream and yield only the items of the latest inner stream.
   The previous inner stream is dropped when the next outer item arrives, like `switchMap` in RxJS.
+  `SwitchMap` implements `FusedStream`.
 - `StreamExt::end_with()` yields a final item after the stream ended, like `endWith` in RxJS.
 - `StreamExt::default_if_empty()` yields a single item if the stream ends without yielding any items, like `defaultIfEmpty` in RxJS.
 

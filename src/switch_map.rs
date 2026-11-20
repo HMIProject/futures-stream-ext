@@ -6,7 +6,7 @@ use std::{
 
 use futures_util::{
     Stream, StreamExt as _,
-    stream::{Fuse, FusedStream as _},
+    stream::{Fuse, FusedStream},
 };
 use pin_project_lite::pin_project;
 
@@ -88,5 +88,16 @@ where
         }
         // Woken up by the outer stream, or by ourselves if it might still be ready.
         pending_and_wake_if(cx, outer_maybe_ready)
+    }
+}
+
+impl<S, U, F> FusedStream for SwitchMap<S, U, F>
+where
+    S: Stream,
+    U: Stream,
+    F: FnMut(S::Item) -> U,
+{
+    fn is_terminated(&self) -> bool {
+        self.outer.is_terminated() && self.inner.is_none()
     }
 }

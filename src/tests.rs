@@ -17,7 +17,10 @@ use std::{
     time::Duration,
 };
 
-use futures_util::{FutureExt as _, Stream, StreamExt as _, stream};
+use futures_util::{
+    FutureExt as _, Stream, StreamExt as _,
+    stream::{self, FusedStream as _},
+};
 
 use crate::{Sleep, StreamExt as _, Throttler, next_period_delay};
 
@@ -247,6 +250,33 @@ fn switch_map_should_only_switch_to_latest_ready_outer_item() {
     assert_eq!(poll_next(&mut stream), Poll::Ready(None));
     drop(stream);
     assert_eq!(vec![2, 4, 5], switched);
+}
+
+#[test]
+fn switch_map_should_be_terminated_after_outer_and_inner_ended() {
+    let queue = Rc::new(RefCell::new(VecDeque::from([1])));
+    let mut stream = queued_stream(&queue)
+        .take(1)
+        .switch_map(|n| stream::iter([n * 10]), NonZeroUsize::MAX);
+    assert!(!stream.is_terminated());
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(10)));
+    // The outer stream ended, but the inner stream has not reported its end yet.
+    assert!(!stream.is_terminated());
+    assert_eq!(poll_next(&mut stream), Poll::Ready(None));
+    assert!(stream.is_terminated());
+    // Polling a terminated stream again is safe.
+    assert_eq!(poll_next(&mut stream), Poll::Ready(None));
+}
+
+#[test]
+fn switch_map_should_not_be_terminated_while_outer_continues() {
+    let queue = Rc::new(RefCell::new(VecDeque::from([1])));
+    let mut stream =
+        queued_stream(&queue).switch_map(|n| stream::iter([n * 10]), NonZeroUsize::MAX);
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(10)));
+    assert_eq!(poll_next(&mut stream), Poll::Pending);
+    // The inner stream ended, but the outer stream continues.
+    assert!(!stream.is_terminated());
 }
 
 #[test]
