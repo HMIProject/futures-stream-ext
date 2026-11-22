@@ -91,6 +91,10 @@ where
             // is unsubscribed by key when the stale stream is dropped. This
             // might even cause a deadlock. Overlapping is pointless anyway,
             // because the stale items are discarded.
+            //
+            // TODO: Release the inner stream asynchronously instead of dropping
+            // it synchronously, e.g. if the inner stream occupies remote resources
+            // on a server.
             this.inner.set(None);
             let switch_to = this
                 .switch_to
