@@ -15,6 +15,12 @@ use std::{
 
 use futures_util::{Stream, stream::Fuse};
 
+mod debounce;
+pub use self::debounce::Debounced;
+
+mod default_if_empty;
+pub use self::default_if_empty::DefaultIfEmpty;
+
 mod distinct;
 pub use self::distinct::{
     DistinctState, DistinctUntilChanged, DistinctUntilChangedBy, DistinctUntilChangedByKey,
@@ -22,8 +28,11 @@ pub use self::distinct::{
     filter_distinct_until_changed_err, filter_distinct_until_changed_ok,
 };
 
-mod debounce;
-pub use self::debounce::Debounced;
+mod end_with;
+pub use self::end_with::EndWith;
+
+mod switch_map;
+pub use self::switch_map::SwitchMap;
 
 mod throttle;
 pub use self::throttle::{IntervalThrottler, IntervalThrottlerConfig, Throttled, Throttler};
@@ -142,6 +151,27 @@ fn pending_and_wake_if<T>(cx: &mut Context<'_>, stream_maybe_ready: bool) -> Pol
 ///
 /// Runtime-agnostic. Extensions that depend on the Tokio runtime are provided
 /// by `tokio::StreamExt` (requires the `tokio` feature).
+///
+/// # Polling ready items
+///
+/// Some combinators take a `max_ready_count` argument. They consume
+/// the items of their input stream that are ready at the same time, but only
+/// act on the latest one. The argument limits how many ready items are
+/// consumed consecutively during a single invocation of [`Stream::poll_next()`].
+/// After reaching the limit, the combinator wakes itself up and continues
+/// during the next invocation. This prevents an endless loop for input streams
+/// that are always ready.
+///
+/// - [`NonZeroUsize::MIN`] is a safe default.
+/// - A greater value skips more items at once and needs fewer self-wakeups.
+///   A good choice is the expected burst size, e.g. the capacity of the
+///   channel that feeds the input stream.
+/// - Use [`NonZeroUsize::MAX`] only if the input stream is guaranteed to become
+///   pending eventually. Otherwise, polling an input stream that is always
+///   ready never returns.
+///
+/// Whether the value also affects which items are yielded is documented for
+/// each combinator.
 pub trait StreamExt: Stream {
     /// Filters out subsequent/adjacent stream items.
     ///
@@ -223,61 +253,190 @@ pub trait StreamExt: Stream {
     ///
     /// The delay is implemented by the given [`Sleep`] type.
     ///
-    /// The `poll_next_max_ready_count` argument controls how many _Ready_ items
-    /// are polled consecutively from the input stream during an invocation
-    /// of [`Stream::poll_next()`] before polling the delay. This limit ensures
-    /// that input streams which are always ready are not polled forever.
+    /// See [Polling ready items](StreamExt#polling-ready-items) for choosing
+    /// `max_ready_count`. Its value usually does not affect which items
+    /// are emitted, because items that are ready at the same time fall into the
+    /// same delay window anyway. Only with a zero delay, [`NonZeroUsize::MIN`]
+    /// emits every item, while a greater value emits only the latest of up to
+    /// `max_ready_count` items that are ready at the same time.
+    ///
     /// See also: [`throttle()`](Self::throttle)
     fn debounce_with_sleep<S: Sleep>(
         self,
         delay: Duration,
-        poll_next_max_ready_count: NonZeroUsize,
+        max_ready_count: NonZeroUsize,
     ) -> Debounced<Self, S>
     where
         Self: Sized,
     {
-        Debounced::new(self, delay, poll_next_max_ready_count)
+        Debounced::new(self, delay, max_ready_count)
     }
 
     /// Throttles an input stream.
     ///
     /// The throttler defines the throttling strategy.
     ///
-    /// The `poll_next_max_ready_count` argument controls how many _Ready_ items
-    /// are polled consecutively from the input stream during an invocation
-    /// of [`Stream::poll_next()`] before polling the throttler. This limit
-    /// ensures that input streams which are always ready are not polled forever.
-    ///
-    /// A value of [`NonZeroUsize::MIN`] will poll the input stream only once and
-    /// could be used as a safe default. Using a greater value to skip multiple
-    /// items at once will reduce the number of calls to the throttler and
-    /// improves the performance and efficiency.
-    fn throttle<Th>(
-        self,
-        throttler: Th,
-        poll_next_max_ready_count: NonZeroUsize,
-    ) -> Throttled<Self, Th>
+    /// See [Polling ready items](StreamExt#polling-ready-items) for choosing
+    /// `max_ready_count`. Its value only affects which items are
+    /// yielded if the throttler is ready while multiple items are ready at the
+    /// same time: [`NonZeroUsize::MIN`] yields the first one, a greater value the
+    /// latest of up to `max_ready_count` items. See
+    /// [`throttle_interval_with_sleep()`](Self::throttle_interval_with_sleep)
+    /// for the impact on interval throttling.
+    fn throttle<Th>(self, throttler: Th, max_ready_count: NonZeroUsize) -> Throttled<Self, Th>
     where
         Self: Sized,
         Th: Throttler<Self::Item>,
     {
-        Throttled::new(self, throttler, poll_next_max_ready_count)
+        Throttled::new(self, throttler, max_ready_count)
     }
 
     /// Throttles an input stream by using a fixed interval.
     ///
     /// The interval is implemented by the given [`Sleep`] type.
     ///
+    /// See [Polling ready items](StreamExt#polling-ready-items) for choosing
+    /// `max_ready_count`. Its value only affects which items are
+    /// yielded if a tick is ready while multiple items are ready at the same
+    /// time:
+    ///
+    /// - With [`IntervalEdge::Trailing`], items that are ready at the same time
+    ///   fall into the same interval anyway. A greater value only improves the
+    ///   efficiency.
+    /// - With [`IntervalEdge::Leading`], the first item of a burst is yielded
+    ///   immediately. [`NonZeroUsize::MIN`] yields the first ready item, a greater
+    ///   value the latest of up to `max_ready_count` items that are
+    ///   ready at the same time.
+    /// - With a zero period, [`NonZeroUsize::MIN`] passes every item through,
+    ///   a greater value skips all but the latest of the items that are ready at
+    ///   the same time.
+    ///
     /// See also: [`throttle()`](Self::throttle)
     fn throttle_interval_with_sleep<S: Sleep>(
         self,
         config: IntervalThrottlerConfig,
-        poll_next_max_ready_count: NonZeroUsize,
+        max_ready_count: NonZeroUsize,
     ) -> Throttled<Self, IntervalThrottler<S>>
     where
         Self: Sized,
     {
-        self.throttle(IntervalThrottler::new(config), poll_next_max_ready_count)
+        self.throttle(IntervalThrottler::new(config), max_ready_count)
+    }
+
+    /// Switches to a new inner stream for each item of the outer stream.
+    ///
+    /// Maps each item of this outer stream to an inner stream with `switch_to` and
+    /// yields the items of the current inner stream. The previous inner stream is
+    /// dropped when the outer stream yields the next item, i.e. its pending items
+    /// are discarded as stale.
+    ///
+    /// The outer stream is polled first. Items of an inner stream are only yielded
+    /// while no new outer item is ready.
+    ///
+    /// Ends after both the outer stream and the current inner stream ended. An inner
+    /// stream that ended is not considered as stale, i.e. its last item remains valid
+    /// until the next outer item arrives.
+    ///
+    /// Equivalent to `switchMap` in RxJS. In the following marble diagram, time
+    /// passes from left to right, `|` marks the end of a stream, and `!` marks
+    /// where an inner stream is dropped. The outer items `a`, `b`, and `c` are
+    /// mapped to the inner streams in the lines below them, which start in the
+    /// same column.
+    ///
+    /// ```text
+    /// outer:   --a---------b-------c--|
+    /// inner a:   --1---2---!
+    /// inner b:             ----4-|
+    /// inner c:                     --5---6-|
+    /// result:  ----1---2-------4-----5---6-|
+    /// ```
+    ///
+    /// Inner stream `a` would have yielded `3` later, but is dropped when `b`
+    /// arrives. The result does not end when inner stream `b` ends, but only after
+    /// both the outer stream and inner stream `c` ended.
+    ///
+    /// # Choosing `max_ready_count`
+    ///
+    /// See [Polling ready items](StreamExt#polling-ready-items). Unlike for the
+    /// other combinators, the value affects the result whenever the outer stream
+    /// yields multiple items at the same time. Only the inner stream of the
+    /// latest of up to `max_ready_count` ready outer items is created.
+    /// With [`NonZeroUsize::MIN`], an inner stream is created for every outer
+    /// item and polled once before switching to the next one. It may yield
+    /// items, although a newer outer item is already ready:
+    ///
+    /// ```
+    /// use std::num::NonZeroUsize;
+    ///
+    /// use futures_stream_ext::StreamExt as _;
+    /// use futures_util::{FutureExt as _, StreamExt as _, stream};
+    ///
+    /// let switch_map = |max_ready_count| {
+    ///     stream::iter([1, 2])
+    ///         .switch_map(|n| stream::iter([n * 10, n * 10 + 1]), max_ready_count)
+    ///         .collect::<Vec<_>>()
+    ///         .now_or_never()
+    ///         .unwrap()
+    /// };
+    /// assert_eq!(switch_map(NonZeroUsize::MIN), [10, 20, 21]);
+    /// assert_eq!(switch_map(NonZeroUsize::new(2).unwrap()), [20, 21]);
+    /// ```
+    ///
+    /// Choose a value that is at least as large as the expected burst size of
+    /// the outer stream, so that a burst creates only a single inner stream.
+    /// This matters if creating an inner stream is expensive or has side
+    /// effects, e.g. when it subscribes to a resource.
+    ///
+    /// # Difference to `flat_map()`
+    ///
+    /// [`flat_map()`](futures_util::StreamExt::flat_map) also maps each outer item
+    /// to an inner stream, but drains each inner stream completely before it polls
+    /// the outer stream for the next item. No item is discarded, but new outer items
+    /// wait until the current inner stream ended. With an inner stream `a` that
+    /// yields `1`, `2`, `3` and then ends, `flat_map()` yields `1 2 3 4 5 6` instead
+    /// of `1 2 4 5 6`, and an inner stream that never ends blocks all further outer
+    /// items. This corresponds to `concatMap` in RxJS, not to RxJS' `flatMap`,
+    /// which is an alias of `mergeMap` and polls all inner streams concurrently.
+    ///
+    /// Use `switch_map()` if only the inner stream of the latest outer item is
+    /// relevant, e.g. when the outer stream yields the current configuration and
+    /// the inner stream observes data that depends on it.
+    fn switch_map<U, F>(self, switch_to: F, max_ready_count: NonZeroUsize) -> SwitchMap<Self, U, F>
+    where
+        Self: Sized,
+        U: Stream,
+        F: FnMut(Self::Item) -> U,
+    {
+        SwitchMap::new(self, switch_to, max_ready_count)
+    }
+
+    /// Yields a final item after this stream ended.
+    ///
+    /// The item is created by `make_item` only after the stream ended.
+    /// Equivalent to `endWith` in RxJS.
+    ///
+    /// Intended for finite streams whose last item becomes invalid when they
+    /// end, e.g. by yielding an error as the final item. Consumers consider the
+    /// last item of a finite stream as valid indefinitely otherwise.
+    fn end_with<F>(self, make_item: F) -> EndWith<Self, F>
+    where
+        Self: Sized,
+        F: FnOnce() -> Self::Item,
+    {
+        EndWith::new(self, make_item)
+    }
+
+    /// Yields a single item if this stream ends without yielding any items.
+    ///
+    /// Yields a final item created by `make_item` if the stream ended before
+    /// yielding its first item. Otherwise, the stream is passed through unchanged.
+    /// Equivalent to `defaultIfEmpty` in RxJS.
+    fn default_if_empty<F>(self, make_item: F) -> DefaultIfEmpty<Self, F>
+    where
+        Self: Sized,
+        F: FnOnce() -> Self::Item,
+    {
+        DefaultIfEmpty::new(self, make_item)
     }
 }
 

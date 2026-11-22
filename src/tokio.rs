@@ -36,30 +36,32 @@ impl crate::Sleep for tokio::time::Sleep {
 pub trait StreamExt: Stream {
     /// Debounces an input stream using [`tokio::time::Sleep`].
     ///
-    /// See also: [`debounce_with_sleep()`](crate::StreamExt::debounce_with_sleep)
+    /// See [`debounce_with_sleep()`](crate::StreamExt::debounce_with_sleep) for
+    /// details, including how to choose `max_ready_count`.
     fn debounce(
         self,
         delay: Duration,
-        poll_next_max_ready_count: NonZeroUsize,
+        max_ready_count: NonZeroUsize,
     ) -> Debounced<Self, tokio::time::Sleep>
     where
         Self: Sized,
     {
-        self.debounce_with_sleep(delay, poll_next_max_ready_count)
+        self.debounce_with_sleep(delay, max_ready_count)
     }
 
     /// Throttles an input stream by using a fixed interval with [`tokio::time::Sleep`].
     ///
-    /// See also: [`throttle_interval_with_sleep()`](crate::StreamExt::throttle_interval_with_sleep)
+    /// See [`throttle_interval_with_sleep()`](crate::StreamExt::throttle_interval_with_sleep)
+    /// for details, including how to choose `max_ready_count`.
     fn throttle_interval(
         self,
         config: IntervalThrottlerConfig,
-        poll_next_max_ready_count: NonZeroUsize,
+        max_ready_count: NonZeroUsize,
     ) -> Throttled<Self, TokioIntervalThrottler>
     where
         Self: Sized,
     {
-        self.throttle_interval_with_sleep(config, poll_next_max_ready_count)
+        self.throttle_interval_with_sleep(config, max_ready_count)
     }
 }
 
