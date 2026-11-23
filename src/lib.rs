@@ -276,6 +276,19 @@ pub trait StreamExt: Stream {
     /// Filters out items that arrive in quick succession. Only the last item from
     /// each sequence is emitted. All preceding items are discarded.
     ///
+    /// Equivalent to `debounceTime` in RxJS. In the following marble diagram,
+    /// time passes from left to right, `|` marks the end of a stream, and the
+    /// delay spans 3 columns:
+    ///
+    /// ```text
+    /// input:   -ab-c-d-e----------f-g------|
+    /// result:  -----------e------------g---|
+    /// ```
+    ///
+    /// Each item restarts the delay. `e` is yielded 3 columns after it arrived,
+    /// because no further item arrived in the meantime. `f` is discarded,
+    /// because `g` arrived before the delay elapsed.
+    ///
     /// The delay is implemented by the given [`Sleep`] type.
     ///
     /// See [Polling ready items](StreamExt#polling-ready-items) for choosing
@@ -314,7 +327,7 @@ pub trait StreamExt: Stream {
     /// affects which items are yielded if the throttler is ready while multiple items are ready at the
     /// same time: [`NonZeroUsize::MIN`] yields the first one, a greater value the
     /// latest of up to `max_ready_count` items. See [`IntervalThrottler`]
-    /// for the impact on interval throttling.
+    /// for the impact on interval throttling and a marble diagram.
     ///
     /// # Difference to tokio-stream's `throttle()`
     ///
@@ -437,6 +450,19 @@ pub trait StreamExt: Stream {
     /// `make_item` is usually a closure, but can be any [`MakeItem`], e.g.
     /// [`DefaultItem`].
     ///
+    /// The following marble diagram compares the variants for a non-empty and
+    /// an empty input stream. Time passes from left to right, `|` marks the end
+    /// of a stream, and `z` is the final item created by `make_item`. It is
+    /// yielded as soon as the input stream ended, immediately followed by the
+    /// end of the result:
+    ///
+    /// ```text
+    /// input:                   -a--b--|    ---|
+    /// end_with:                -a--b--z|   ---z|
+    /// end_with_if_nonempty:    -a--b--z|   ---|
+    /// default_if_empty_with:   -a--b--|    ---z|
+    /// ```
+    ///
     /// Equivalent to `chain(stream::once(future::lazy(|_| make_item())))`
     /// with [`futures_util`], but available in variants that depend on whether
     /// the stream was empty.
@@ -453,7 +479,8 @@ pub trait StreamExt: Stream {
     /// Yields a final item after this stream ended, unless it ended without yielding any items.
     ///
     /// Like [`end_with()`](Self::end_with), but an empty stream stays empty, because there
-    /// is no last item that could become invalid.
+    /// is no last item that could become invalid. See the marble diagram of
+    /// [`end_with()`](Self::end_with).
     ///
     /// The item is created by `make_item` only after a non-empty stream ended.
     /// `make_item` is dropped without being invoked if the stream ended empty.
@@ -484,7 +511,8 @@ pub trait StreamExt: Stream {
     ///
     /// Yields [`Default::default()`] as a final item if the stream ended before
     /// yielding its first item. Otherwise, the stream is passed through unchanged.
-    /// Equivalent to `defaultIfEmpty` in RxJS.
+    /// Equivalent to `defaultIfEmpty` in RxJS. See the marble diagram of
+    /// [`end_with()`](Self::end_with).
     ///
     /// See also: [`default_if_empty_with()`](Self::default_if_empty_with)
     fn default_if_empty(self) -> EndWith<Self, DefaultItem<Self::Item>>
@@ -499,7 +527,8 @@ pub trait StreamExt: Stream {
     ///
     /// Yields a final item created by `make_item` if the stream ended before
     /// yielding its first item. Otherwise, the stream is passed through unchanged.
-    /// Equivalent to `defaultIfEmpty` in RxJS.
+    /// Equivalent to `defaultIfEmpty` in RxJS. See the marble diagram of
+    /// [`end_with()`](Self::end_with).
     ///
     /// `make_item` is usually a closure, but can be any [`MakeItem`].
     ///

@@ -164,6 +164,23 @@ pin_project! {
     /// controls whether a pending item is yielded at the start or at the end
     /// of an interval.
     ///
+    /// In the following marble diagram, time passes from left to right, `|`
+    /// marks the end of a stream, and the period spans 4 columns:
+    ///
+    /// ```text
+    /// input:     -ab-c-d-e----------f-g------|
+    /// leading:   -a---c---e---------f---g----|
+    /// trailing:  -----c---e-------------g----|
+    /// ```
+    ///
+    /// With [`IntervalEdge::Leading`], the first item of a burst is yielded
+    /// immediately. With [`IntervalEdge::Trailing`], the first interval
+    /// starts when the first item arrives. With both edges, the latest pending
+    /// item is yielded at the end of each interval, and all other items are
+    /// discarded. Intervals continue on a fixed schedule while items are
+    /// pending. After an interval without items the throttler is idle again,
+    /// e.g. before `f` arrives.
+    ///
     /// The `max_ready_count` of [`Throttle::yield_after()`]
     /// only affects which items are yielded if a tick is ready while multiple
     /// items are ready at the same time:
