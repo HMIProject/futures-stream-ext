@@ -9,19 +9,13 @@ use std::{
 use futures_util::{Stream, stream::FusedStream};
 use pin_project_lite::pin_project;
 
-use crate::pending_and_wake_if;
+use crate::{MAX_DISCARDED_COUNT, pending_and_wake_if};
 
 /// Stateful predicate for filtering stream items synchronously.
 trait FilterState<T> {
     /// Updates the state and returns `true` if `next_item` should be passed through.
     fn filter_next(&mut self, next_item: &T) -> bool;
 }
-
-/// The maximum number of consecutive items that are discarded during a single
-/// invocation of [`Stream::poll_next()`].
-///
-/// Same limit as in [`FuturesUnordered`](futures_util::stream::FuturesUnordered).
-const MAX_DISCARDED_COUNT: usize = 32;
 
 pin_project! {
     /// Filters stream items synchronously with a stateful predicate.
