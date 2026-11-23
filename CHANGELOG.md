@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `StreamExt::end_with_if_nonempty()` and the stream type `EndWithIfNonempty` yield a final item after the stream ended, like `end_with()`, unless the stream ended without yielding any items.
+- `StreamExt::end_with_if_nonempty()` yields a final item after the stream ended, like `end_with()`, unless the stream ended without yielding any items.
 - The trait `MakeItem` creates the item that `EndWith` and `DefaultIfEmpty` yield.
   It is implemented for closures and for `DefaultItem`, which yields `Default::default()`.
   `DefaultItem` can be created with `DefaultItem::new()` or `Default::default()` and is `Copy`.

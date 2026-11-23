@@ -16,8 +16,10 @@ use crate::MakeItem;
 use super::StreamExt;
 
 pin_project! {
-    /// Shared implementation of [`EndWith`] and [`EndWithIfNonempty`].
-    struct EndWithInner<St, F> {
+    /// Stream returned by [`StreamExt::end_with()`] and
+    /// [`StreamExt::end_with_if_nonempty()`].
+    #[must_use = "streams do nothing unless polled"]
+    pub struct EndWith<St, F> {
         #[pin]
         stream: St,
 
@@ -26,13 +28,34 @@ pin_project! {
         make_item: Option<F>,
 
         // Whether the final item is created when the stream ends.
-        // Initially `false` only for `EndWithIfNonempty`, set by the first item.
+        // Initially `false` only for `end_with_if_nonempty()`, set by the first item.
         emit_item: bool,
     }
 }
 
-impl<St, F> EndWithInner<St, F> {
-    const fn new(stream: St, make_item: F, emit_item: bool) -> Self {
+// Implemented manually, because closures do not implement `Debug`.
+impl<St, F> fmt::Debug for EndWith<St, F>
+where
+    St: fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EndWith")
+            .field("stream", &self.stream)
+            .field("emit_item", &self.emit_item)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<St, F> EndWith<St, F> {
+    pub(super) const fn new(stream: St, make_item: F) -> Self {
+        Self::with_emit_item(stream, make_item, true)
+    }
+
+    pub(super) const fn new_if_nonempty(stream: St, make_item: F) -> Self {
+        Self::with_emit_item(stream, make_item, false)
+    }
+
+    const fn with_emit_item(stream: St, make_item: F, emit_item: bool) -> Self {
         Self {
             stream,
             make_item: Some(make_item),
@@ -41,7 +64,7 @@ impl<St, F> EndWithInner<St, F> {
     }
 }
 
-impl<St, F> Stream for EndWithInner<St, F>
+impl<St, F> Stream for EndWith<St, F>
 where
     St: Stream,
     F: MakeItem<St::Item>,
@@ -86,87 +109,12 @@ where
     }
 }
 
-/// Defines a public wrapper of [`EndWithInner`].
-macro_rules! end_with_wrapper {
-    ($(#[$attr:meta])* $name:ident, emit_item: $emit_item:literal) => {
-        pin_project! {
-            $(#[$attr])*
-            #[must_use = "streams do nothing unless polled"]
-            pub struct $name<St, F> {
-                #[pin]
-                inner: EndWithInner<St, F>,
-            }
-        }
-
-        impl<St, F> $name<St, F> {
-            pub(super) const fn new(stream: St, make_item: F) -> Self {
-                Self {
-                    inner: EndWithInner::new(stream, make_item, $emit_item),
-                }
-            }
-        }
-
-        impl<St, F> Stream for $name<St, F>
-        where
-            St: Stream,
-            F: MakeItem<St::Item>,
-        {
-            type Item = St::Item;
-
-            fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-                self.project().inner.poll_next(cx)
-            }
-
-            fn size_hint(&self) -> (usize, Option<usize>) {
-                self.inner.size_hint()
-            }
-        }
-
-        impl<St, F> FusedStream for $name<St, F>
-        where
-            St: Stream,
-            F: MakeItem<St::Item>,
-        {
-            fn is_terminated(&self) -> bool {
-                self.inner.make_item.is_none()
-            }
-        }
-    };
-}
-
-end_with_wrapper!(
-    /// Stream returned by [`StreamExt::end_with()`].
-    EndWith,
-    emit_item: true
-);
-
-end_with_wrapper!(
-    /// Stream returned by [`StreamExt::end_with_if_nonempty()`].
-    EndWithIfNonempty,
-    emit_item: false
-);
-
-// Implemented manually, because closures do not implement `Debug`.
-impl<St, F> fmt::Debug for EndWith<St, F>
+impl<St, F> FusedStream for EndWith<St, F>
 where
-    St: fmt::Debug,
+    St: Stream,
+    F: MakeItem<St::Item>,
 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("EndWith")
-            .field("stream", &self.inner.stream)
-            .finish_non_exhaustive()
-    }
-}
-
-// Implemented manually, because closures do not implement `Debug`.
-impl<St, F> fmt::Debug for EndWithIfNonempty<St, F>
-where
-    St: fmt::Debug,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("EndWithIfNonempty")
-            .field("stream", &self.inner.stream)
-            .field("nonempty", &self.inner.emit_item)
-            .finish_non_exhaustive()
+    fn is_terminated(&self) -> bool {
+        self.make_item.is_none()
     }
 }

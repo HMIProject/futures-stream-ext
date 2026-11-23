@@ -25,7 +25,7 @@ mod default_if_empty;
 pub use self::default_if_empty::DefaultIfEmpty;
 
 mod end_with;
-pub use self::end_with::{EndWith, EndWithIfNonempty};
+pub use self::end_with::EndWith;
 
 mod make_item;
 pub use self::make_item::{DefaultItem, MakeItem};
@@ -465,12 +465,12 @@ pub trait StreamExt: Stream {
     /// assert_eq!(end_with_if_nonempty(vec![1, 2]), [1, 2, 0]);
     /// assert_eq!(end_with_if_nonempty(vec![]), []);
     /// ```
-    fn end_with_if_nonempty<F>(self, make_item: F) -> EndWithIfNonempty<Self, F>
+    fn end_with_if_nonempty<F>(self, make_item: F) -> EndWith<Self, F>
     where
         Self: Sized,
         F: MakeItem<Self::Item>,
     {
-        EndWithIfNonempty::new(self, make_item)
+        EndWith::new_if_nonempty(self, make_item)
     }
 
     /// Yields the default item if this stream ends without yielding any items.
