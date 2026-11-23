@@ -19,9 +19,7 @@ mod debounce;
 pub use self::debounce::Debounce;
 
 mod dedup;
-pub use self::dedup::{
-    Dedup, DedupBy, DedupByKey, DedupErr, DedupOk, NeverYield, YieldAfter, YieldStrategy,
-};
+pub use self::dedup::{Dedup, DedupBy, DedupByKey, DedupErr, DedupOk};
 
 mod default_if_empty;
 pub use self::default_if_empty::DefaultIfEmpty;

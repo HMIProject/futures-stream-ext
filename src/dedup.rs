@@ -20,106 +20,41 @@ trait FilterState<T> {
     fn filter_next(&mut self, next_item: &T) -> bool;
 }
 
-mod sealed {
-    pub trait Sealed {}
-}
-
-/// Decides when the `dedup` streams yield to the executor while discarding
-/// items.
-///
-/// Implemented by [`NeverYield`] and [`YieldAfter`]. Sealed.
-pub trait YieldStrategy: sealed::Sealed {
-    /// The maximum number of consecutive items that are discarded during a
-    /// single invocation of [`Stream::poll_next()`], or `None` if unlimited.
-    #[doc(hidden)]
-    fn max_discarded_count(&self) -> Option<NonZeroUsize>;
-}
-
-/// Never yields to the executor while discarding items.
-///
-/// The default strategy of the `dedup` streams. Like
-/// [`StreamExt::filter()`](futures_util::StreamExt::filter), polling an input
-/// stream that is always ready and yields only items that are discarded never
-/// returns.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct NeverYield;
-
-impl sealed::Sealed for NeverYield {}
-
-impl YieldStrategy for NeverYield {
-    fn max_discarded_count(&self) -> Option<NonZeroUsize> {
-        None
-    }
-}
-
-/// Yields to the executor after discarding a number of consecutive items.
-///
-/// Created by the `yield_after()` methods of the `dedup` streams, e.g.
-/// [`Dedup::yield_after()`].
-#[derive(Debug, Clone, Copy)]
-pub struct YieldAfter {
-    max_discarded_count: NonZeroUsize,
-}
-
-impl sealed::Sealed for YieldAfter {}
-
-impl YieldStrategy for YieldAfter {
-    fn max_discarded_count(&self) -> Option<NonZeroUsize> {
-        Some(self.max_discarded_count)
-    }
-}
-
 pin_project! {
     /// Filters stream items synchronously with a stateful predicate.
     ///
     /// Unlike [`StreamExt::filter()`](futures_util::StreamExt::filter) it
     /// neither buffers the item nor creates a future for each item.
     #[derive(Debug)]
-    struct FilterStatefulSync<St, State, Y> {
+    struct FilterStatefulSync<St, State> {
         #[pin]
         stream: St,
         state: State,
-        strategy: Y,
+        // Unlimited if `None`.
+        max_discarded_count: Option<NonZeroUsize>,
     }
 }
 
-impl<St, State> FilterStatefulSync<St, State, NeverYield> {
+impl<St, State> FilterStatefulSync<St, State> {
     const fn new(stream: St, state: State) -> Self {
         Self {
             stream,
             state,
-            strategy: NeverYield,
+            max_discarded_count: None,
         }
     }
 }
 
-impl<St, State, Y> FilterStatefulSync<St, State, Y> {
-    fn yield_after(
-        self,
-        max_discarded_count: NonZeroUsize,
-    ) -> FilterStatefulSync<St, State, YieldAfter> {
-        let Self { stream, state, .. } = self;
-        FilterStatefulSync {
-            stream,
-            state,
-            strategy: YieldAfter {
-                max_discarded_count,
-            },
-        }
-    }
-}
-
-impl<St, State, Y> Stream for FilterStatefulSync<St, State, Y>
+impl<St, State> Stream for FilterStatefulSync<St, State>
 where
     St: Stream,
     State: FilterState<St::Item>,
-    Y: YieldStrategy,
 {
     type Item = St::Item;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
-        let max_discarded_count = this.strategy.max_discarded_count();
+        let max_discarded_count = *this.max_discarded_count;
         let mut discarded_count = 0;
         loop {
             let Some(next_item) = ready!(this.stream.as_mut().poll_next(cx)) else {
@@ -142,7 +77,7 @@ where
     }
 }
 
-impl<St: FusedStream, State, Y> FilterStatefulSync<St, State, Y> {
+impl<St: FusedStream, State> FilterStatefulSync<St, State> {
     fn is_terminated(&self) -> bool {
         self.stream.is_terminated()
     }
@@ -151,7 +86,7 @@ impl<St: FusedStream, State, Y> FilterStatefulSync<St, State, Y> {
 /// Implements `yield_after()` for a public wrapper of [`FilterStatefulSync`].
 macro_rules! impl_yield_after {
     ($name:ident<$($param:ident),*>) => {
-        impl<$($param,)* Y> $name<$($param,)* Y>
+        impl<$($param),*> $name<$($param),*>
         where
             St: Stream,
         {
@@ -159,18 +94,15 @@ macro_rules! impl_yield_after {
             /// consecutive items.
             ///
             /// By default, the stream never yields to the executor while
-            /// discarding items (see [`NeverYield`]). Use this strategy if the
-            /// input stream might be always ready and yield only items that are
-            /// discarded, e.g. a synchronous stream. Otherwise, polling the
-            /// stream would never return. Does not affect which items are
-            /// yielded.
-            pub fn yield_after(
-                self,
-                max_discarded_count: NonZeroUsize,
-            ) -> $name<$($param,)* YieldAfter> {
-                $name {
-                    inner: self.inner.yield_after(max_discarded_count),
-                }
+            /// discarding items, like
+            /// [`StreamExt::filter()`](futures_util::StreamExt::filter). Use
+            /// this method if the input stream might be always ready and yield
+            /// only items that are discarded, e.g. a synchronous stream.
+            /// Otherwise, polling the stream would never return. Does not
+            /// affect which items are yielded.
+            pub const fn yield_after(mut self, max_discarded_count: NonZeroUsize) -> Self {
+                self.inner.max_discarded_count = Some(max_discarded_count);
+                self
             }
         }
     };
@@ -179,7 +111,7 @@ macro_rules! impl_yield_after {
 /// Implements [`FusedStream`] for a public wrapper of [`FilterStatefulSync`].
 macro_rules! impl_fused_stream {
     ($name:ident<$($param:ident),*>) => {
-        impl<$($param,)* Y> FusedStream for $name<$($param,)* Y>
+        impl<$($param),*> FusedStream for $name<$($param),*>
         where
             Self: Stream,
             St: FusedStream,
@@ -246,9 +178,9 @@ pin_project! {
     /// Result of [`StreamExt::dedup()`](crate::StreamExt::dedup).
     #[derive(Debug)]
     #[must_use = "streams do nothing unless polled"]
-    pub struct Dedup<St: Stream, Y = NeverYield> {
+    pub struct Dedup<St: Stream> {
         #[pin]
-        inner: FilterStatefulSync<St, Option<St::Item>, Y>,
+        inner: FilterStatefulSync<St, Option<St::Item>>,
     }
 }
 
@@ -260,9 +192,8 @@ impl<St: Stream> Dedup<St> {
     }
 }
 
-impl<St, Y> Stream for Dedup<St, Y>
+impl<St> Stream for Dedup<St>
 where
-    Y: YieldStrategy,
     St: Stream,
     St::Item: Clone + PartialEq,
 {
@@ -289,9 +220,9 @@ pin_project! {
     /// Result of [`StreamExt::dedup_by()`](crate::StreamExt::dedup_by).
     #[derive(Debug)]
     #[must_use = "streams do nothing unless polled"]
-    pub struct DedupBy<St: Stream, F, Y = NeverYield> {
+    pub struct DedupBy<St: Stream, F> {
         #[pin]
-        inner: FilterStatefulSync<St, ByState<St::Item, F>, Y>,
+        inner: FilterStatefulSync<St, ByState<St::Item, F>>,
     }
 }
 
@@ -309,9 +240,8 @@ impl<St: Stream, F> DedupBy<St, F> {
     }
 }
 
-impl<St, F, Y> Stream for DedupBy<St, F, Y>
+impl<St, F> Stream for DedupBy<St, F>
 where
-    Y: YieldStrategy,
     St: Stream,
     St::Item: Clone,
     F: FnMut(&St::Item, &St::Item) -> bool,
@@ -344,9 +274,9 @@ pin_project! {
     /// Result of [`StreamExt::dedup_by_key()`](crate::StreamExt::dedup_by_key).
     #[derive(Debug)]
     #[must_use = "streams do nothing unless polled"]
-    pub struct DedupByKey<St, K, F, Y = NeverYield> {
+    pub struct DedupByKey<St, K, F> {
         #[pin]
-        inner: FilterStatefulSync<St, ByKeyState<K, F>, Y>,
+        inner: FilterStatefulSync<St, ByKeyState<K, F>>,
     }
 }
 
@@ -364,9 +294,8 @@ impl<St, K, F> DedupByKey<St, K, F> {
     }
 }
 
-impl<St, K, F, Y> Stream for DedupByKey<St, K, F, Y>
+impl<St, K, F> Stream for DedupByKey<St, K, F>
 where
-    Y: YieldStrategy,
     St: Stream,
     K: PartialEq,
     F: FnMut(&St::Item) -> K,
@@ -451,9 +380,9 @@ pin_project! {
     /// Result of [`StreamExt::dedup_ok()`](crate::StreamExt::dedup_ok).
     #[derive(Debug)]
     #[must_use = "streams do nothing unless polled"]
-    pub struct DedupOk<St, T, Y = NeverYield> {
+    pub struct DedupOk<St, T> {
         #[pin]
-        inner: FilterStatefulSync<St, ResultState<T, SelectOk>, Y>,
+        inner: FilterStatefulSync<St, ResultState<T, SelectOk>>,
     }
 }
 
@@ -465,9 +394,8 @@ impl<St, T> DedupOk<St, T> {
     }
 }
 
-impl<St, T, E, Y> Stream for DedupOk<St, T, Y>
+impl<St, T, E> Stream for DedupOk<St, T>
 where
-    Y: YieldStrategy,
     St: Stream<Item = Result<T, E>>,
     T: Clone + PartialEq,
 {
@@ -478,9 +406,9 @@ pin_project! {
     /// Result of [`StreamExt::dedup_err()`](crate::StreamExt::dedup_err).
     #[derive(Debug)]
     #[must_use = "streams do nothing unless polled"]
-    pub struct DedupErr<St, E, Y = NeverYield> {
+    pub struct DedupErr<St, E> {
         #[pin]
-        inner: FilterStatefulSync<St, ResultState<E, SelectErr>, Y>,
+        inner: FilterStatefulSync<St, ResultState<E, SelectErr>>,
     }
 }
 
@@ -492,9 +420,8 @@ impl<St, E> DedupErr<St, E> {
     }
 }
 
-impl<St, T, E, Y> Stream for DedupErr<St, E, Y>
+impl<St, T, E> Stream for DedupErr<St, E>
 where
-    Y: YieldStrategy,
     St: Stream<Item = Result<T, E>>,
     E: Clone + PartialEq,
 {
