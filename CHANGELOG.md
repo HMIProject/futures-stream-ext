@@ -10,17 +10,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The trait `MakeItem` creates the item that `DefaultIfEmpty` yields.
+  It is implemented for closures and for `DefaultItem`, which yields `Default::default()`.
+
 ### Changed
 
 - **Breaking:** The stream types `Debounced` and `Throttled` were renamed to `Debounce` and `Throttle`, matching the names of the methods that return them.
 - **Breaking:** The `distinct_until_changed` family was renamed to `dedup`, following `Vec::dedup()` and `Itertools::dedup()`:
   - The methods `distinct_until_changed()`, `distinct_until_changed_by()`, `distinct_until_changed_by_key()`, `distinct_until_changed_ok()` and `distinct_until_changed_err()` to `dedup()`, `dedup_by()`, `dedup_by_key()`, `dedup_ok()` and `dedup_err()`.
   - The stream types `DistinctUntilChanged*` to `Dedup*`.
-  - The functions `filter_distinct_until_changed()`, `filter_distinct_until_changed_ok()` and `filter_distinct_until_changed_err()` to `filter_dedup()`, `filter_dedup_ok()` and `filter_dedup_err()`.
   - `DistinctState` to `DedupState`.
   - `dedup_by()` invokes the comparison function with the last passed through item first, like `Itertools::dedup_by()` and unlike `Vec::dedup_by()`.
 - **Breaking:** `dedup_by_key()` no longer takes an initial key and always passes through the first item, like `Vec::dedup_by_key()`.
   Replace `distinct_until_changed_by_key(None, |item| Some(key(item)))` with `dedup_by_key(|item| key(item))`.
+- **Breaking:** `default_if_empty(make_item)` was renamed to `default_if_empty_with(make_item)`.
+  `default_if_empty()` takes no argument and yields `Default::default()`.
+
+### Removed
+
+- **Breaking:** The free functions `filter_distinct_until_changed()`, `filter_distinct_until_changed_ok()` and `filter_distinct_until_changed_err()`.
+  Use the `StreamExt` methods `dedup()`, `dedup_ok()` and `dedup_err()` instead.
 
 ## [0.6.2] - 2026-11-23
 
@@ -29,9 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `StreamExt::switch_map()` and the stream type `SwitchMap` map each item to an inner stream and yield only the items of the latest inner stream.
   The previous inner stream is dropped when the next outer item arrives, like `switchMap` in RxJS.
 - `StreamExt::end_with()` and the stream type `EndWith` yield a final item after the stream ended, like `endWith` in RxJS.
-- `StreamExt::default_if_empty()`, `StreamExt::default_if_empty_with()` and the stream type `DefaultIfEmpty` yield a single item if the stream ends without yielding any items, like `defaultIfEmpty` in RxJS.
-  `default_if_empty()` yields `Default::default()`, `default_if_empty_with()` the item created by a closure.
-  The trait `MakeItem` creates the item. It is implemented for closures and for `DefaultItem`, which `default_if_empty()` uses.
+- `StreamExt::default_if_empty()` and the stream type `DefaultIfEmpty` yield a single item if the stream ends without yielding any items, like `defaultIfEmpty` in RxJS.
 - The stream types `SwitchMap`, `EndWith` and `DefaultIfEmpty` implement `FusedStream`.
 
 ## [0.6.1] - 2026-11-20
