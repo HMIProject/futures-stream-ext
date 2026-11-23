@@ -3,6 +3,7 @@
 
 use std::{
     mem,
+    num::NonZeroUsize,
     pin::Pin,
     task::{Context, Poll, ready},
 };
@@ -26,12 +27,18 @@ pin_project! {
         #[pin]
         stream: St,
         state: State,
+        // Unlimited if `None`.
+        max_ready_count: Option<NonZeroUsize>,
     }
 }
 
 impl<St, State> FilterStatefulSync<St, State> {
     const fn new(stream: St, state: State) -> Self {
-        Self { stream, state }
+        Self {
+            stream,
+            state,
+            max_ready_count: None,
+        }
     }
 }
 
@@ -44,12 +51,22 @@ where
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
-        while let Some(next_item) = ready!(this.stream.as_mut().poll_next(cx)) {
+        let max_ready_count = *this.max_ready_count;
+        let mut ready_count = 0;
+        loop {
+            let Some(next_item) = ready!(this.stream.as_mut().poll_next(cx)) else {
+                return Poll::Ready(None);
+            };
             if this.state.filter_next(&next_item) {
                 return Poll::Ready(Some(next_item));
             }
+            ready_count += 1;
+            if max_ready_count.is_some_and(|max| ready_count >= max.get()) {
+                // Yield to the executor and continue during the next invocation.
+                cx.waker().wake_by_ref();
+                return Poll::Pending;
+            }
         }
-        Poll::Ready(None)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -64,9 +81,33 @@ impl<St: FusedStream, State> FilterStatefulSync<St, State> {
     }
 }
 
-/// Implements [`FusedStream`] for a public wrapper of [`FilterStatefulSync`].
+/// Implements `yield_after()` and [`FusedStream`] for a public wrapper of
+/// [`FilterStatefulSync`].
 macro_rules! impl_filter_wrapper {
     ($name:ident<$($param:ident),*>) => {
+        impl<$($param),*> $name<$($param),*>
+        where
+            St: Stream,
+        {
+            /// Yields to the executor after discarding `max_ready_count`
+            /// consecutive ready items.
+            ///
+            /// By default, the stream never yields to the executor while
+            /// discarding items, like
+            /// [`StreamExt::filter()`](futures_util::StreamExt::filter). Use
+            /// this method if the input stream might be always ready and yield
+            /// only items that are discarded, e.g. a synchronous stream.
+            /// Otherwise, polling the stream would never return. Does not
+            /// affect which items are yielded.
+            ///
+            /// See [Polling ready items](crate::StreamExt#polling-ready-items)
+            /// for how to choose `max_ready_count`.
+            pub const fn yield_after(mut self, max_ready_count: NonZeroUsize) -> Self {
+                self.inner.max_ready_count = Some(max_ready_count);
+                self
+            }
+        }
+
         impl<$($param),*> FusedStream for $name<$($param),*>
         where
             Self: Stream,

@@ -157,9 +157,13 @@ fn pending_and_wake_if<T>(cx: &mut Context<'_>, stream_maybe_ready: bool) -> Pol
 /// invocation. This prevents an endless loop for input streams that are always
 /// ready.
 ///
-/// [`Debounce`], [`Throttle`] and [`SwitchMap`] default to
-/// [`NonZeroUsize::MIN`]. They consume the items that are ready at the same
-/// time, but only act on the latest one.
+/// - [`Debounce`], [`Throttle`] and [`SwitchMap`] default to
+///   [`NonZeroUsize::MIN`]. They consume the items that are ready at the same
+///   time, but only act on the latest one.
+/// - The `dedup` streams, e.g. [`Dedup`], have no limit by default. Like
+///   [`filter()`](futures_util::StreamExt::filter), they never wake themselves
+///   up: polling an input stream that is always ready and yields only items
+///   that are discarded never returns.
 ///
 /// Choosing the value:
 ///
@@ -177,6 +181,10 @@ pub trait StreamExt: Stream {
     /// Filters out subsequent/adjacent stream items.
     ///
     /// Equivalent to `distinctUntilChanged` in RxJS.
+    ///
+    /// By default, never yields to the executor while discarding items.
+    /// Use [`Dedup::yield_after()`] if the input stream might be always ready,
+    /// see [Polling ready items](StreamExt#polling-ready-items).
     fn dedup(self) -> Dedup<Self>
     where
         Self: Sized,
