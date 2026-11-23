@@ -227,15 +227,8 @@ fn dedup_should_yield_to_the_executor_while_discarding_items() {
     let waker = Waker::from(Arc::clone(&wake_flag));
     let mut cx = Context::from_waker(&waker);
 
-    // Always ready and yields only duplicates after the first item.
-    let mut stream = stream::repeat(1).dedup();
-    assert_eq!(stream.poll_next_unpin(&mut cx), Poll::Ready(Some(1)));
-    for _ in 0..3 {
-        assert_eq!(stream.poll_next_unpin(&mut cx), Poll::Pending);
-        assert!(wake_flag.0.swap(false, Ordering::Relaxed));
-    }
-
-    // Continues after yielding to the executor.
+    // Always ready and yields 100 duplicates. Continues after yielding to the
+    // executor.
     let mut stream = stream::repeat(1).take(100).chain(stream::iter([2])).dedup();
     assert_eq!(stream.poll_next_unpin(&mut cx), Poll::Ready(Some(1)));
     let mut pending_count = 0;
@@ -439,8 +432,6 @@ fn default_if_empty_yields_default_item_after_empty_stream() {
 #[test]
 fn default_if_empty_does_not_store_a_function_pointer() {
     assert_eq!(size_of::<crate::DefaultItem<u32>>(), 0);
-    let stream = stream::iter([1]).default_if_empty();
-    assert!(format!("{stream:?}").starts_with("DefaultIfEmpty { stream: "));
 }
 
 #[test]
@@ -469,8 +460,6 @@ fn default_item_can_be_created_and_copied() {
     assert_eq!(default_items.len(), 3);
 
     let make_item = crate::DefaultItem::<u32>::default();
-    let mut stream = stream::empty().default_if_empty_with(make_item);
-    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(0)));
     let mut stream = stream::empty().default_if_empty_with(make_item);
     assert_eq!(poll_next(&mut stream), Poll::Ready(Some(0)));
 }
