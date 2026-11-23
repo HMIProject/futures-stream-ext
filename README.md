@@ -13,8 +13,8 @@
 Extensions of the
 [`Stream`](https://docs.rs/futures-core/latest/futures_core/stream/trait.Stream.html) trait.
 
-Adds stream combinators that complement `futures-util` and are modeled after their RxJS
-counterparts:
+Adds stream combinators that complement [`futures-util`](https://docs.rs/futures-util) and are modeled after their
+[RxJS](https://rxjs.dev) counterparts:
 
 - `dedup()`, `dedup_by()`, `dedup_by_key()`, `dedup_by_some_key()`: filter out adjacent
   duplicates (`distinctUntilChanged`)
