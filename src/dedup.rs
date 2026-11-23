@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MPL-2.0
 
 use std::{
+    marker::PhantomData,
+    mem,
     pin::Pin,
     task::{Context, Poll, ready},
 };
@@ -84,22 +86,13 @@ macro_rules! delegate_stream_to_inner {
     };
 }
 
-/// Filtering of subsequent/adjacent sequence items.
+/// Filtering of subsequent/adjacent sequence items that are equal according
+/// to `eq_fn`.
 ///
 /// Each passed through item will be cloned once.
 /// All other sequence items are discarded.
 ///
 /// See also: <https://rxmarbles.com/#distinctUntilChanged>
-fn filter_dedup<T>(last_item: &mut Option<T>, next_item: &T) -> bool
-where
-    T: Clone + PartialEq,
-{
-    filter_dedup_by(last_item, next_item, |last_item, next_item| {
-        last_item == next_item
-    })
-}
-
-/// Like [`filter_dedup()`], but compares items with `eq_fn`.
 fn filter_dedup_by<T>(
     last_item: &mut Option<T>,
     next_item: &T,
@@ -123,50 +116,9 @@ where
     }
 }
 
-/// State for filtering duplicate values that are interrupted by other items.
-///
-/// Used by [`OkState`] and [`ErrState`]. Keeps the last value after an
-/// interruption to reuse its allocation.
-#[derive(Debug)]
-struct DedupState<T> {
-    last_value: Option<T>,
-    interrupted: bool,
-}
-
-impl<T> DedupState<T> {
-    const fn new() -> Self {
-        Self {
-            last_value: None,
-            interrupted: false,
-        }
-    }
-}
-
-/// Like [`filter_dedup()`], but passes through and
-/// interrupts the sequence if `next_value` is `None`.
-fn filter_dedup_some<T>(state: &mut DedupState<T>, next_value: Option<&T>) -> bool
-where
-    T: Clone + PartialEq,
-{
-    let Some(next_value) = next_value else {
-        state.interrupted = true;
-        return true;
-    };
-    if !state.interrupted {
-        return filter_dedup(&mut state.last_value, next_value);
-    }
-    state.interrupted = false;
-    match &mut state.last_value {
-        // Reuse the existing allocation.
-        Some(last_value) => last_value.clone_from(next_value),
-        None => state.last_value = Some(next_value.clone()),
-    }
-    true
-}
-
 impl<T: Clone + PartialEq> FilterState<T> for Option<T> {
     fn filter_next(&mut self, next_item: &T) -> bool {
-        filter_dedup(self, next_item)
+        filter_dedup_by(self, next_item, T::eq)
     }
 }
 
@@ -334,18 +286,76 @@ where
     }
 }
 
-/// Filters out subsequent/adjacent `Ok` sequence items.
-///
-/// All `Err` sequence items are passed through.
-#[derive(Debug)]
-struct OkState<T>(DedupState<T>);
+/// Selects the values of [`Result`] items that are filtered by [`ResultState`].
+trait SelectValue<T, E> {
+    type Value;
 
-impl<T, E> FilterState<Result<T, E>> for OkState<T>
+    /// Returns `None` if `result` should be passed through.
+    fn select(result: &Result<T, E>) -> Option<&Self::Value>;
+}
+
+/// Selects `Ok` values.
+#[derive(Debug)]
+struct SelectOk;
+
+impl<T, E> SelectValue<T, E> for SelectOk {
+    type Value = T;
+
+    fn select(result: &Result<T, E>) -> Option<&T> {
+        result.as_ref().ok()
+    }
+}
+
+/// Selects `Err` values.
+#[derive(Debug)]
+struct SelectErr;
+
+impl<T, E> SelectValue<T, E> for SelectErr {
+    type Value = E;
+
+    fn select(result: &Result<T, E>) -> Option<&E> {
+        result.as_ref().err()
+    }
+}
+
+/// Filters out subsequent/adjacent values selected by `S`.
+///
+/// All other items are passed through and interrupt the sequence.
+/// Keeps the last value after an interruption to reuse its allocation.
+#[derive(Debug)]
+struct ResultState<V, S> {
+    last_value: Option<V>,
+    interrupted: bool,
+    select: PhantomData<S>,
+}
+
+impl<V, S> ResultState<V, S> {
+    const fn new() -> Self {
+        Self {
+            last_value: None,
+            interrupted: false,
+            select: PhantomData,
+        }
+    }
+}
+
+impl<T, E, V, S> FilterState<Result<T, E>> for ResultState<V, S>
 where
-    T: Clone + PartialEq,
+    S: SelectValue<T, E, Value = V>,
+    V: Clone + PartialEq,
 {
     fn filter_next(&mut self, next_result: &Result<T, E>) -> bool {
-        filter_dedup_some(&mut self.0, next_result.as_ref().ok())
+        let Some(next_value) = S::select(next_result) else {
+            self.interrupted = true;
+            return true;
+        };
+        // The first value after an interruption is always passed through.
+        let interrupted = mem::take(&mut self.interrupted);
+        filter_dedup_by(
+            &mut self.last_value,
+            next_value,
+            |last_value, next_value| !interrupted && last_value == next_value,
+        )
     }
 }
 
@@ -355,7 +365,7 @@ pin_project! {
     #[must_use = "streams do nothing unless polled"]
     pub struct DedupOk<St, T> {
         #[pin]
-        inner: FilterStatefulSync<St, OkState<T>>,
+        inner: FilterStatefulSync<St, ResultState<T, SelectOk>>,
     }
 }
 
@@ -364,7 +374,7 @@ impl<St, T> DedupOk<St, T> {
         Self {
             inner: FilterStatefulSync {
                 stream,
-                state: OkState(DedupState::new()),
+                state: ResultState::new(),
             },
         }
     }
@@ -388,28 +398,13 @@ where
     }
 }
 
-/// Filters out subsequent/adjacent `Err` sequence items.
-///
-/// All `Ok` sequence items are passed through.
-#[derive(Debug)]
-struct ErrState<E>(DedupState<E>);
-
-impl<T, E> FilterState<Result<T, E>> for ErrState<E>
-where
-    E: Clone + PartialEq,
-{
-    fn filter_next(&mut self, next_result: &Result<T, E>) -> bool {
-        filter_dedup_some(&mut self.0, next_result.as_ref().err())
-    }
-}
-
 pin_project! {
     /// Result of [`StreamExt::dedup_err()`](crate::StreamExt::dedup_err).
     #[derive(Debug)]
     #[must_use = "streams do nothing unless polled"]
     pub struct DedupErr<St, E> {
         #[pin]
-        inner: FilterStatefulSync<St, ErrState<E>>,
+        inner: FilterStatefulSync<St, ResultState<E, SelectErr>>,
     }
 }
 
@@ -418,7 +413,7 @@ impl<St, E> DedupErr<St, E> {
         Self {
             inner: FilterStatefulSync {
                 stream,
-                state: ErrState(DedupState::new()),
+                state: ResultState::new(),
             },
         }
     }
