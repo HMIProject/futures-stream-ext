@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Breaking:** `Debounce` yields the pending item immediately when the input stream ends, instead of waiting for the delay to elapse, like `debounceTime` in RxJS.
 - **Breaking:** The stream types `Debounced` and `Throttled` were renamed to `Debounce` and `Throttle`, matching the names of the methods that return them.
+- **Breaking:** The `distinct_until_changed` family was renamed to `dedup`, following `Vec::dedup()` and `Itertools::dedup()`:
+  - The methods `distinct_until_changed()`, `distinct_until_changed_by()` and `distinct_until_changed_by_key()` to `dedup()`, `dedup_by()` and `dedup_by_key()`.
+  - The stream types `DistinctUntilChanged*` to `Dedup*`.
+  - `distinct_until_changed_ok()` and `distinct_until_changed_err()` were replaced by `dedup_by_some_key()`, which dedups items by a borrowed key and passes through items without a key.
+    Replace them with `dedup_by_some_key(|result| result.as_ref().ok())` and `dedup_by_some_key(|result| result.as_ref().err())`.
+    The stream types `DistinctUntilChangedOk` and `DistinctUntilChangedErr` were replaced by `DedupBySomeKey`.
+  - `dedup_by()` invokes the comparison function with the last passed through item first, like `Itertools::dedup_by()` and unlike `Vec::dedup_by()`.
 - **Breaking:** `Throttler::on_first_item()` and `Throttler::on_tick()` no longer take a `Context` argument.
   The throttler is polled right after each callback.
 - **Breaking:** `debounce()` moved from `tokio::StreamExt` to `StreamExt`, where it requires the `tokio` feature.
@@ -29,6 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Breaking:** The `tokio::StreamExt` trait.
   Its `debounce()` method moved to `StreamExt`, so only one `StreamExt` of this crate needs to be imported.
+- **Breaking:** The free functions `filter_distinct_until_changed()`, `filter_distinct_until_changed_ok()` and `filter_distinct_until_changed_err()`.
+  Use the `StreamExt` methods `dedup()` and `dedup_by_some_key()` instead.
+- **Breaking:** `DistinctState`, which was only needed for the removed free functions.
 - **Breaking:** `StreamExt::throttle_interval_with_sleep()`, `tokio::StreamExt::throttle_interval()` and `IntervalThrottlerConfig`.
   Replace `throttle_interval_with_sleep::<S>(IntervalThrottlerConfig { period, edge }, max_ready_count)` with `throttle(IntervalThrottler::<S>::new(period, edge), max_ready_count)`.
   With Tokio, use `tokio::TokioIntervalThrottler::new(period, edge)`.
