@@ -315,6 +315,20 @@ pub trait StreamExt: Stream {
     /// same time: [`NonZeroUsize::MIN`] yields the first one, a greater value the
     /// latest of up to `max_ready_count` items. See [`IntervalThrottler`]
     /// for the impact on interval throttling.
+    ///
+    /// # Difference to tokio-stream's `throttle()`
+    ///
+    /// `tokio_stream::StreamExt::throttle()` delays polling the input stream
+    /// for the given duration after each item. It never discards items, but
+    /// applies backpressure to the input stream instead. This method keeps
+    /// consuming the input stream and discards all but the latest pending item,
+    /// which is yielded when the throttler ticks. With [`IntervalThrottler`],
+    /// this corresponds to `auditTime` ([`IntervalEdge::Trailing`]) or to
+    /// `throttleTime` with both `leading` and `trailing` enabled
+    /// ([`IntervalEdge::Leading`]) in RxJS.
+    ///
+    /// Use this method if only the latest item is relevant, e.g. for status
+    /// updates, and the input stream should not be slowed down.
     fn throttle<Th>(self, throttler: Th) -> Throttle<Self, Th>
     where
         Self: Sized,
