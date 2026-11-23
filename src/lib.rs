@@ -281,13 +281,15 @@ pub trait StreamExt: Stream {
     /// delay spans 3 columns:
     ///
     /// ```text
-    /// input:   -ab-c-d-e----------f-g------|
-    /// result:  -----------e------------g---|
+    /// input:   -ab-c-d-e----------f-g-|
+    /// result:  -----------e-----------g|
     /// ```
     ///
     /// Each item restarts the delay. `e` is yielded 3 columns after it arrived,
     /// because no further item arrived in the meantime. `f` is discarded,
-    /// because `g` arrived before the delay elapsed.
+    /// because `g` arrived before the delay elapsed. `g` is yielded as soon as
+    /// the input stream ended, without waiting for the delay to elapse, because
+    /// no newer item can arrive anymore. The result ends immediately afterwards.
     ///
     /// The delay is implemented by the given [`Sleep`] type.
     ///

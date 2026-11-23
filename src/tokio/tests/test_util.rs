@@ -63,14 +63,21 @@ pub(super) fn alternating_delay_stream(
 
 /// Finite stream of items that arrive at the given points in time
 /// (milliseconds since `started_at`).
+///
+/// Ends at `finished_at_millis`, or immediately after the last item
+/// if that has already passed.
 pub(super) fn scheduled_stream(
     started_at: Instant,
     schedule: impl IntoIterator<Item = (u64, usize)>,
+    finished_at_millis: u64,
 ) -> impl Stream<Item = usize> {
-    stream::iter(schedule).then(move |(arrival_millis, item)| async move {
-        sleep_until(started_at + Duration::from_millis(arrival_millis)).await;
-        item
-    })
+    let sleep_until_millis = move |millis| sleep_until(started_at + Duration::from_millis(millis));
+    stream::iter(schedule)
+        .then(move |(arrival_millis, item)| async move {
+            sleep_until_millis(arrival_millis).await;
+            item
+        })
+        .chain(stream::once(sleep_until_millis(finished_at_millis)).filter_map(|()| async { None }))
 }
 
 /// Collects all items with their emission time (milliseconds since `started_at`).
