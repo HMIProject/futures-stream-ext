@@ -16,7 +16,7 @@ use std::{
 use futures_util::{Stream, stream::Fuse};
 
 mod debounce;
-pub use self::debounce::Debounced;
+pub use self::debounce::Debounce;
 
 mod default_if_empty;
 pub use self::default_if_empty::DefaultIfEmpty;
@@ -35,7 +35,7 @@ mod switch_map;
 pub use self::switch_map::SwitchMap;
 
 mod throttle;
-pub use self::throttle::{IntervalThrottler, IntervalThrottlerConfig, Throttled, Throttler};
+pub use self::throttle::{IntervalThrottler, IntervalThrottlerConfig, Throttle, Throttler};
 
 #[cfg(feature = "tokio")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tokio")))]
@@ -265,11 +265,11 @@ pub trait StreamExt: Stream {
         self,
         delay: Duration,
         max_ready_count: NonZeroUsize,
-    ) -> Debounced<Self, S>
+    ) -> Debounce<Self, S>
     where
         Self: Sized,
     {
-        Debounced::new(self, delay, max_ready_count)
+        Debounce::new(self, delay, max_ready_count)
     }
 
     /// Throttles an input stream.
@@ -283,12 +283,12 @@ pub trait StreamExt: Stream {
     /// latest of up to `max_ready_count` items. See
     /// [`throttle_interval_with_sleep()`](Self::throttle_interval_with_sleep)
     /// for the impact on interval throttling.
-    fn throttle<Th>(self, throttler: Th, max_ready_count: NonZeroUsize) -> Throttled<Self, Th>
+    fn throttle<Th>(self, throttler: Th, max_ready_count: NonZeroUsize) -> Throttle<Self, Th>
     where
         Self: Sized,
         Th: Throttler<Self::Item>,
     {
-        Throttled::new(self, throttler, max_ready_count)
+        Throttle::new(self, throttler, max_ready_count)
     }
 
     /// Throttles an input stream by using a fixed interval.
@@ -316,7 +316,7 @@ pub trait StreamExt: Stream {
         self,
         config: IntervalThrottlerConfig,
         max_ready_count: NonZeroUsize,
-    ) -> Throttled<Self, IntervalThrottler<S>>
+    ) -> Throttle<Self, IntervalThrottler<S>>
     where
         Self: Sized,
     {
