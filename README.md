@@ -13,6 +13,23 @@
 Extensions of the
 [`Stream`](https://docs.rs/futures-core/latest/futures_core/stream/trait.Stream.html) trait.
 
+Adds stream combinators that complement `futures-util` and are modeled after their RxJS
+counterparts:
+
+- `dedup()`, `dedup_by()`, `dedup_by_key()`, `dedup_by_some_key()`: filter out adjacent
+  duplicates (`distinctUntilChanged`)
+- `debounce()`: yield an item only after no newer item arrived for a given delay (`debounceTime`)
+- `throttle()`: yield at most the latest item per interval (`throttleTime`, `auditTime`)
+- `switch_map()`: switch to a new inner stream for each outer item and drop the previous one
+  (`switchMap`)
+- `end_with()`, `end_with_if_nonempty()`: yield a final item after the stream ended (`endWith`)
+- `default_if_empty()`, `default_if_empty_with()`: yield a single item if the stream ended empty
+  (`defaultIfEmpty`)
+
+The combinators are runtime-agnostic. Timers are abstracted by the `Sleep` trait. The optional
+`tokio` feature provides an implementation for the Tokio runtime and adds `debounce()`, a
+shorthand for `debounce_with_sleep()`.
+
 ## License
 
 Licensed under the Mozilla Public License 2.0 (MPL-2.0) (see [MPL-2.0.txt](LICENSES/MPL-2.0.txt) or
