@@ -92,7 +92,7 @@ macro_rules! delegate_stream_to_inner {
 
 /// Filtering of subsequent/adjacent sequence items.
 ///
-/// Each distinct sequence item will be cloned once.
+/// Each passed through item will be cloned once.
 /// All other sequence items are discarded.
 ///
 /// See also: <https://rxmarbles.com/#distinctUntilChanged>
@@ -129,11 +129,11 @@ where
     }
 }
 
-/// State for filtering distinct values that are interrupted by other items.
+/// State for filtering duplicate values that are interrupted by other items.
 ///
-/// Used by [`filter_dedup_ok()`] and [`filter_dedup_err()`]. Keeps the last
-/// value after an interruption to reuse its allocation.
-#[derive(Debug, Clone)]
+/// Used by [`OkState`] and [`ErrState`]. Keeps the last value after an
+/// interruption to reuse its allocation.
+#[derive(Debug)]
 struct DedupState<T> {
     last_value: Option<T>,
     interrupted: bool,
@@ -342,18 +342,7 @@ where
 
 /// Filters out subsequent/adjacent `Ok` sequence items.
 ///
-/// Each distinct `Ok` sequence item will be cloned once.
-/// All other `Ok` sequence items are discarded.
 /// All `Err` sequence items are passed through.
-///
-/// See also: [`filter_dedup()`]
-fn filter_dedup_ok<T, E>(state: &mut DedupState<T>, next_result: &Result<T, E>) -> bool
-where
-    T: Clone + PartialEq,
-{
-    filter_dedup_some(state, next_result.as_ref().ok())
-}
-
 #[derive(Debug)]
 struct OkState<T>(DedupState<T>);
 
@@ -362,7 +351,7 @@ where
     T: Clone + PartialEq,
 {
     fn filter_next(&mut self, next_result: &Result<T, E>) -> bool {
-        filter_dedup_ok(&mut self.0, next_result)
+        filter_dedup_some(&mut self.0, next_result.as_ref().ok())
     }
 }
 
@@ -407,18 +396,7 @@ where
 
 /// Filters out subsequent/adjacent `Err` sequence items.
 ///
-/// Each distinct `Err` sequence item will be cloned once.
-/// All other `Err` sequence items are discarded.
 /// All `Ok` sequence items are passed through.
-///
-/// See also: [`filter_dedup()`]
-fn filter_dedup_err<T, E>(state: &mut DedupState<E>, next_result: &Result<T, E>) -> bool
-where
-    E: Clone + PartialEq,
-{
-    filter_dedup_some(state, next_result.as_ref().err())
-}
-
 #[derive(Debug)]
 struct ErrState<E>(DedupState<E>);
 
@@ -427,7 +405,7 @@ where
     E: Clone + PartialEq,
 {
     fn filter_next(&mut self, next_result: &Result<T, E>) -> bool {
-        filter_dedup_err(&mut self.0, next_result)
+        filter_dedup_some(&mut self.0, next_result.as_ref().err())
     }
 }
 
