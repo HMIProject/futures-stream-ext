@@ -186,8 +186,9 @@ pub trait StreamExt: Stream {
     ///
     /// Equivalent to `distinctUntilChanged` in RxJS.
     ///
-    /// Never yields to the executor while discarding items, see
-    /// [Polling ready items](StreamExt#polling-ready-items).
+    /// By default, never yields to the executor while discarding items.
+    /// Use [`Dedup::yield_after()`] if the input stream might be always ready,
+    /// see [Polling ready items](StreamExt#polling-ready-items).
     fn dedup(self) -> Dedup<Self>
     where
         Self: Sized,
