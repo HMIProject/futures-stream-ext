@@ -56,7 +56,7 @@ pin_project! {
     )]
     #[derive(Debug)]
     #[must_use = "streams do nothing unless polled"]
-    pub struct Throttle<St: Stream, Th: Throttler<<St as Stream>::Item>> {
+    pub struct Throttle<St: Stream, Th> {
         #[pin]
         stream: Fuse<St>,
         #[pin]
