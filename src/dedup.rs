@@ -9,6 +9,8 @@ use std::{
 use futures_util::{Stream, stream::FusedStream};
 use pin_project_lite::pin_project;
 
+use crate::pending_and_wake_if;
+
 /// Stateful predicate for filtering stream items synchronously.
 trait FilterState<T> {
     /// Updates the state and returns `true` if `next_item` should be passed through.
@@ -54,8 +56,7 @@ where
         // Yield to the executor and continue during the next invocation.
         // Otherwise, an input stream that is always ready and yields only
         // items that are discarded would block the executor forever.
-        cx.waker().wake_by_ref();
-        Poll::Pending
+        pending_and_wake_if(cx, true)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
