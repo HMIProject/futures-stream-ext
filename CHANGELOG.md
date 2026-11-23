@@ -42,6 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** `debounce()`, `debounce_with_sleep()`, `throttle()` and `switch_map()` no longer take a `max_ready_count` argument.
   It defaults to `NonZeroUsize::MIN` and can be set with the `yield_after(max_ready_count)` method of the returned stream, like for the `dedup` streams.
   Replace `throttle(throttler, max_ready_count)` with `throttle(throttler).yield_after(max_ready_count)` and omit `yield_after()` for `NonZeroUsize::MIN`.
+- **Breaking:** `Throttler` is no longer generic over the item type and no longer a `Stream<Item = ()>`.
+  Implement `Throttler::poll_tick()`, which returns `Poll<()>`, instead of `Stream::poll_next()`.
+  `Throttler::on_tick()` takes `item_yielded: bool` instead of `Option<&T>`.
+  `IntervalThrottler` no longer implements `Stream`.
 
 ### Removed
 

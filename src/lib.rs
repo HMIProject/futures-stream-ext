@@ -304,7 +304,7 @@ pub trait StreamExt: Stream {
     fn throttle<Th>(self, throttler: Th) -> Throttle<Self, Th>
     where
         Self: Sized,
-        Th: Throttler<Self::Item>,
+        Th: Throttler,
     {
         Throttle::new(self, throttler)
     }
