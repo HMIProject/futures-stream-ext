@@ -57,7 +57,7 @@ async fn should_pass_through_the_first_item_regardless_of_its_key() {
 }
 
 #[tokio::test]
-async fn should_filter_out_adjacent_duplicate_ok_items() {
+async fn should_filter_out_adjacent_duplicate_ok_items_by_some_key() {
     let input = futures_util::stream::iter([
         Ok(1),
         Ok(1),
@@ -70,12 +70,15 @@ async fn should_filter_out_adjacent_duplicate_ok_items() {
         Ok(3),
     ]);
     let expected = vec![Ok(1), Ok(2), Err(1), Ok(2), Err(2), Err(2), Ok(3)];
-    let actual = input.dedup_ok().collect::<Vec<_>>().await;
+    let actual = input
+        .dedup_by_some_key(|result| result.as_ref().ok())
+        .collect::<Vec<_>>()
+        .await;
     assert_eq!(expected, actual);
 }
 
 #[tokio::test]
-async fn should_filter_out_adjacent_duplicate_err_items() {
+async fn should_filter_out_adjacent_duplicate_err_items_by_some_key() {
     let input = futures_util::stream::iter([
         Err(1),
         Err(1),
@@ -88,7 +91,10 @@ async fn should_filter_out_adjacent_duplicate_err_items() {
         Err(3),
     ]);
     let expected = vec![Err(1), Err(2), Ok(1), Err(2), Ok(2), Ok(2), Err(3)];
-    let actual = input.dedup_err().collect::<Vec<_>>().await;
+    let actual = input
+        .dedup_by_some_key(|result| result.as_ref().err())
+        .collect::<Vec<_>>()
+        .await;
     assert_eq!(expected, actual);
 }
 
@@ -104,6 +110,6 @@ async fn should_be_terminated_after_a_fused_input_stream_has_finished() {
     assert_terminated_after_finished(items().dedup()).await;
     assert_terminated_after_finished(items().dedup_by(|lhs, rhs| lhs == rhs)).await;
     assert_terminated_after_finished(items().dedup_by_key(|item| *item)).await;
-    assert_terminated_after_finished(results().dedup_ok()).await;
-    assert_terminated_after_finished(results().dedup_err()).await;
+    assert_terminated_after_finished(results().dedup_by_some_key(|result| result.as_ref().ok()))
+        .await;
 }

@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   It is implemented for closures and for `DefaultItem`, which yields `Default::default()`.
   `DefaultItem` can be created with `DefaultItem::new()` or `Default::default()` and is `Copy`.
   `end_with()` and `default_if_empty_with()` accept any `MakeItem`, not only closures.
-- The `dedup` stream types have a `yield_after(max_ready_count)` method that makes them yield to the executor after discarding `max_ready_count` consecutive ready items, like the `max_ready_count` argument of `debounce()` and `throttle()`.
+- The `dedup` stream types have a `yield_after(max_ready_count)` method that makes them yield to the executor after discarding `max_ready_count` consecutive ready items.
   By default, they still never yield while discarding items, like `filter()`.
   Use it if the input stream might be always ready and yield only items that are discarded, e.g. a synchronous stream.
   Otherwise, polling the stream never returns.
@@ -26,8 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Breaking:** The stream types `Debounced` and `Throttled` were renamed to `Debounce` and `Throttle`, matching the names of the methods that return them.
 - **Breaking:** The `distinct_until_changed` family was renamed to `dedup`, following `Vec::dedup()` and `Itertools::dedup()`:
-  - The methods `distinct_until_changed()`, `distinct_until_changed_by()`, `distinct_until_changed_by_key()`, `distinct_until_changed_ok()` and `distinct_until_changed_err()` to `dedup()`, `dedup_by()`, `dedup_by_key()`, `dedup_ok()` and `dedup_err()`.
+  - The methods `distinct_until_changed()`, `distinct_until_changed_by()` and `distinct_until_changed_by_key()` to `dedup()`, `dedup_by()` and `dedup_by_key()`.
   - The stream types `DistinctUntilChanged*` to `Dedup*`.
+  - `distinct_until_changed_ok()` and `distinct_until_changed_err()` were replaced by `dedup_by_some_key()`, which dedups items by a borrowed key and passes through items without a key.
+    Replace them with `dedup_by_some_key(|result| result.as_ref().ok())` and `dedup_by_some_key(|result| result.as_ref().err())`.
+    The stream types `DistinctUntilChangedOk` and `DistinctUntilChangedErr` were replaced by `DedupBySomeKey`.
   - `dedup_by()` invokes the comparison function with the last passed through item first, like `Itertools::dedup_by()` and unlike `Vec::dedup_by()`.
 - **Breaking:** `dedup_by_key()` no longer takes an initial key and always passes through the first item, like `Vec::dedup_by_key()`.
   Replace `distinct_until_changed_by_key(None, |item| Some(key(item)))` with `dedup_by_key(|item| key(item))`.
@@ -52,7 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - **Breaking:** The free functions `filter_distinct_until_changed()`, `filter_distinct_until_changed_ok()` and `filter_distinct_until_changed_err()`.
-  Use the `StreamExt` methods `dedup()`, `dedup_ok()` and `dedup_err()` instead.
+  Use the `StreamExt` methods `dedup()` and `dedup_by_some_key()` instead.
 - **Breaking:** `DistinctState`, which was only needed for the removed free functions.
 - **Breaking:** `StreamExt::throttle_interval_with_sleep()`, `tokio::StreamExt::throttle_interval()` and `IntervalThrottlerConfig`.
   Replace `throttle_interval_with_sleep::<S>(IntervalThrottlerConfig { period, edge }, max_ready_count)` with `throttle(IntervalThrottler::<S>::new(period, edge), max_ready_count)`.

@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MPL-2.0
 
 use std::{
-    marker::PhantomData,
     mem,
     num::NonZeroUsize,
     pin::Pin,
@@ -301,127 +300,65 @@ where
     delegate_stream_to_inner!();
 }
 
-/// Selects the values of [`Result`] items that are filtered by [`ResultState`].
-trait SelectValue<T, E> {
-    type Value;
-
-    /// Returns `None` if `result` should be passed through.
-    fn select(result: &Result<T, E>) -> Option<&Self::Value>;
-}
-
-/// Selects `Ok` values.
-#[derive(Debug)]
-struct SelectOk;
-
-impl<T, E> SelectValue<T, E> for SelectOk {
-    type Value = T;
-
-    fn select(result: &Result<T, E>) -> Option<&T> {
-        result.as_ref().ok()
-    }
-}
-
-/// Selects `Err` values.
-#[derive(Debug)]
-struct SelectErr;
-
-impl<T, E> SelectValue<T, E> for SelectErr {
-    type Value = E;
-
-    fn select(result: &Result<T, E>) -> Option<&E> {
-        result.as_ref().err()
-    }
-}
-
-/// Filters out subsequent/adjacent values selected by `S`.
+/// Filters out subsequent/adjacent items with the same key, if any.
 ///
-/// All other items are passed through and interrupt the sequence.
-/// Keeps the last value after an interruption to reuse its allocation.
+/// Items without a key are passed through and interrupt the sequence.
+/// Keeps the last key after an interruption to reuse its allocation.
 #[derive(Debug)]
-struct ResultState<V, S> {
-    last_value: Option<V>,
+struct BySomeKeyState<K, F> {
+    last_key: Option<K>,
     interrupted: bool,
-    select: PhantomData<S>,
+    key_fn: F,
 }
 
-impl<V, S> ResultState<V, S> {
-    const fn new() -> Self {
-        Self {
-            last_value: None,
-            interrupted: false,
-            select: PhantomData,
-        }
-    }
-}
-
-impl<T, E, V, S> FilterState<Result<T, E>> for ResultState<V, S>
+impl<T, K, F> FilterState<T> for BySomeKeyState<K, F>
 where
-    S: SelectValue<T, E, Value = V>,
-    V: Clone + PartialEq,
+    K: Clone + PartialEq,
+    F: FnMut(&T) -> Option<&K>,
 {
-    fn filter_next(&mut self, next_result: &Result<T, E>) -> bool {
-        let Some(next_value) = S::select(next_result) else {
+    fn filter_next(&mut self, next_item: &T) -> bool {
+        let Some(next_key) = (self.key_fn)(next_item) else {
             self.interrupted = true;
             return true;
         };
-        // The first value after an interruption is always passed through.
+        // The first key after an interruption is always passed through.
         let interrupted = mem::take(&mut self.interrupted);
-        filter_dedup_by(
-            &mut self.last_value,
-            next_value,
-            |last_value, next_value| !interrupted && last_value == next_value,
-        )
+        filter_dedup_by(&mut self.last_key, next_key, |last_key, next_key| {
+            !interrupted && last_key == next_key
+        })
     }
 }
 
 pin_project! {
-    /// Result of [`StreamExt::dedup_ok()`](crate::StreamExt::dedup_ok).
+    /// Result of [`StreamExt::dedup_by_some_key()`](crate::StreamExt::dedup_by_some_key).
     #[derive(Debug)]
     #[must_use = "streams do nothing unless polled"]
-    pub struct DedupOk<St, T> {
+    pub struct DedupBySomeKey<St, K, F> {
         #[pin]
-        inner: FilterStatefulSync<St, ResultState<T, SelectOk>>,
+        inner: FilterStatefulSync<St, BySomeKeyState<K, F>>,
     }
 }
 
-impl<St, T> DedupOk<St, T> {
-    pub(crate) const fn new(stream: St) -> Self {
+impl<St, K, F> DedupBySomeKey<St, K, F> {
+    pub(crate) const fn new(stream: St, key_fn: F) -> Self {
         Self {
-            inner: FilterStatefulSync::new(stream, ResultState::new()),
+            inner: FilterStatefulSync::new(
+                stream,
+                BySomeKeyState {
+                    last_key: None,
+                    interrupted: false,
+                    key_fn,
+                },
+            ),
         }
     }
 }
 
-impl<St, T, E> Stream for DedupOk<St, T>
+impl<St, K, F> Stream for DedupBySomeKey<St, K, F>
 where
-    St: Stream<Item = Result<T, E>>,
-    T: Clone + PartialEq,
-{
-    delegate_stream_to_inner!();
-}
-
-pin_project! {
-    /// Result of [`StreamExt::dedup_err()`](crate::StreamExt::dedup_err).
-    #[derive(Debug)]
-    #[must_use = "streams do nothing unless polled"]
-    pub struct DedupErr<St, E> {
-        #[pin]
-        inner: FilterStatefulSync<St, ResultState<E, SelectErr>>,
-    }
-}
-
-impl<St, E> DedupErr<St, E> {
-    pub(crate) const fn new(stream: St) -> Self {
-        Self {
-            inner: FilterStatefulSync::new(stream, ResultState::new()),
-        }
-    }
-}
-
-impl<St, T, E> Stream for DedupErr<St, E>
-where
-    St: Stream<Item = Result<T, E>>,
-    E: Clone + PartialEq,
+    St: Stream,
+    K: Clone + PartialEq,
+    F: FnMut(&St::Item) -> Option<&K>,
 {
     delegate_stream_to_inner!();
 }
@@ -429,8 +366,7 @@ where
 impl_filter_wrapper!(Dedup<St>);
 impl_filter_wrapper!(DedupBy<St, F>);
 impl_filter_wrapper!(DedupByKey<St, K, F>);
-impl_filter_wrapper!(DedupOk<St, T>);
-impl_filter_wrapper!(DedupErr<St, E>);
+impl_filter_wrapper!(DedupBySomeKey<St, K, F>);
 
 #[cfg(test)]
 mod tests;

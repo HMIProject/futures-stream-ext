@@ -19,7 +19,7 @@ mod debounce;
 pub use self::debounce::Debounce;
 
 mod dedup;
-pub use self::dedup::{Dedup, DedupBy, DedupByKey, DedupErr, DedupOk};
+pub use self::dedup::{Dedup, DedupBy, DedupByKey, DedupBySomeKey};
 
 mod end_with;
 pub use self::end_with::EndWith;
@@ -230,26 +230,43 @@ pub trait StreamExt: Stream {
         DedupByKey::new(self, key_fn)
     }
 
-    /// Filters out subsequent/adjacent `Ok` items in a result stream.
+    /// Filters out subsequent/adjacent stream items with the same key, if any.
+    ///
+    /// Like [`dedup_by_key()`](Self::dedup_by_key), but `key_fn` borrows the
+    /// key from the item and may return `None`. Items without a key are passed
+    /// through and interrupt the sequence: the next item with a key is passed
+    /// through, even if its key equals the last one. Each passed through key is
+    /// cloned once and stored until it is replaced by the next different key.
+    ///
+    /// Filters a [`Result`] stream by its `Ok` or `Err` values:
+    ///
+    /// ```
+    /// use futures_stream_ext::StreamExt as _;
+    /// use futures_util::{FutureExt as _, StreamExt as _, stream};
+    ///
+    /// let results = [Ok(1), Ok(1), Err("a"), Err("a"), Ok(1), Ok(2)];
+    /// let dedup_ok = stream::iter(results)
+    ///     .dedup_by_some_key(|result| result.as_ref().ok())
+    ///     .collect::<Vec<_>>()
+    ///     .now_or_never()
+    ///     .unwrap();
+    /// assert_eq!(dedup_ok, [Ok(1), Err("a"), Err("a"), Ok(1), Ok(2)]);
+    /// let dedup_err = stream::iter(results)
+    ///     .dedup_by_some_key(|result| result.as_ref().err())
+    ///     .collect::<Vec<_>>()
+    ///     .now_or_never()
+    ///     .unwrap();
+    /// assert_eq!(dedup_err, [Ok(1), Ok(1), Err("a"), Ok(1), Ok(2)]);
+    /// ```
     ///
     /// See also: [`dedup()`](Self::dedup)
-    fn dedup_ok<T, E>(self) -> DedupOk<Self, T>
+    fn dedup_by_some_key<K, F>(self, key_fn: F) -> DedupBySomeKey<Self, K, F>
     where
-        Self: Stream<Item = Result<T, E>> + Sized,
-        T: Clone + PartialEq,
+        Self: Sized,
+        K: Clone + PartialEq,
+        F: FnMut(&Self::Item) -> Option<&K>,
     {
-        DedupOk::new(self)
-    }
-
-    /// Filters out subsequent/adjacent `Err` items in a result stream.
-    ///
-    /// See also: [`dedup()`](Self::dedup)
-    fn dedup_err<T, E>(self) -> DedupErr<Self, E>
-    where
-        Self: Stream<Item = Result<T, E>> + Sized,
-        E: Clone + PartialEq,
-    {
-        DedupErr::new(self)
+        DedupBySomeKey::new(self, key_fn)
     }
 
     /// Debounces an input stream.

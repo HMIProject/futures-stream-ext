@@ -274,13 +274,13 @@ fn dedup_should_yield_to_the_executor_after_discarding_items() {
 }
 
 #[test]
-fn dedup_ok_should_yield_to_the_executor_after_discarding_items() {
+fn dedup_by_some_key_should_yield_to_the_executor_after_discarding_items() {
     let (wake_flag, waker) = WakeFlag::new_waker();
     let mut cx = Context::from_waker(&waker);
 
     // Always ready and yields only duplicates after the first item.
     let mut stream = stream::repeat(Ok::<_, ()>(1))
-        .dedup_ok()
+        .dedup_by_some_key(|result| result.as_ref().ok())
         .yield_after(NonZeroUsize::MIN);
     assert_eq!(stream.poll_next_unpin(&mut cx), Poll::Ready(Some(Ok(1))));
     assert_eq!(stream.poll_next_unpin(&mut cx), Poll::Pending);
