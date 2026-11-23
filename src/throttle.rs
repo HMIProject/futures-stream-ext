@@ -64,14 +64,28 @@ where
     St: Stream,
     Th: Throttler<<St as Stream>::Item>,
 {
-    pub(crate) fn new(stream: St, throttler: Th, max_ready_count: NonZeroUsize) -> Self {
+    pub(crate) fn new(stream: St, throttler: Th) -> Self {
         Self {
             stream: stream.fuse(),
             throttler,
-            max_ready_count,
+            max_ready_count: NonZeroUsize::MIN,
             pending_item: None,
             throttler_idle: true,
         }
+    }
+}
+
+impl<St: Stream, Th> Throttle<St, Th> {
+    /// Yields to the executor after consuming `max_ready_count` consecutive
+    /// ready items of the input stream.
+    ///
+    /// Defaults to [`NonZeroUsize::MIN`]. See
+    /// [Polling ready items](crate::StreamExt#polling-ready-items) for how to
+    /// choose `max_ready_count`. See [`StreamExt::throttle()`](crate::StreamExt::throttle)
+    /// for how it affects which items are yielded.
+    pub const fn yield_after(mut self, max_ready_count: NonZeroUsize) -> Self {
+        self.max_ready_count = max_ready_count;
+        self
     }
 }
 
@@ -141,7 +155,7 @@ pin_project! {
     /// controls whether a pending item is yielded at the start or at the end
     /// of an interval.
     ///
-    /// The `max_ready_count` argument of [`StreamExt::throttle()`](crate::StreamExt::throttle)
+    /// The `max_ready_count` of [`Throttle::yield_after()`]
     /// only affects which items are yielded if a tick is ready while multiple
     /// items are ready at the same time:
     ///
