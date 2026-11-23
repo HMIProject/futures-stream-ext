@@ -423,6 +423,10 @@ pub trait StreamExt: Stream {
     /// `make_item` is usually a closure, but can be any [`MakeItem`], e.g.
     /// [`DefaultItem`].
     ///
+    /// Equivalent to `chain(stream::once(future::lazy(|_| make_item())))`
+    /// with [`futures_util`], but available in variants that depend on whether
+    /// the stream was empty.
+    ///
     /// See also: [`end_with_if_nonempty()`](Self::end_with_if_nonempty)
     fn end_with<F>(self, make_item: F) -> EndWith<Self, F>
     where
