@@ -222,14 +222,27 @@ impl Wake for WakeFlag {
 }
 
 #[test]
-fn dedup_should_yield_to_the_executor_while_discarding_items() {
+fn dedup_should_not_yield_to_the_executor_by_default() {
+    // Discards 100 duplicates during a single invocation.
+    let mut stream = stream::repeat(1).take(100).chain(stream::iter([2])).dedup();
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(1)));
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(2)));
+    assert_eq!(poll_next(&mut stream), Poll::Ready(None));
+}
+
+#[test]
+fn dedup_should_yield_to_the_executor_after_discarding_items() {
     let wake_flag = Arc::new(WakeFlag(AtomicBool::new(false)));
     let waker = Waker::from(Arc::clone(&wake_flag));
     let mut cx = Context::from_waker(&waker);
 
     // Always ready and yields 100 duplicates. Continues after yielding to the
     // executor.
-    let mut stream = stream::repeat(1).take(100).chain(stream::iter([2])).dedup();
+    let mut stream = stream::repeat(1)
+        .take(100)
+        .chain(stream::iter([2]))
+        .dedup()
+        .yield_after(NonZeroUsize::new(32).unwrap());
     assert_eq!(stream.poll_next_unpin(&mut cx), Poll::Ready(Some(1)));
     let mut pending_count = 0;
     let next_item = loop {
@@ -243,6 +256,21 @@ fn dedup_should_yield_to_the_executor_while_discarding_items() {
     };
     assert_eq!(next_item, Some(2));
     assert_eq!(pending_count, 3);
+}
+
+#[test]
+fn dedup_ok_should_yield_to_the_executor_after_discarding_items() {
+    let wake_flag = Arc::new(WakeFlag(AtomicBool::new(false)));
+    let waker = Waker::from(Arc::clone(&wake_flag));
+    let mut cx = Context::from_waker(&waker);
+
+    // Always ready and yields only duplicates after the first item.
+    let mut stream = stream::repeat(Ok::<_, ()>(1))
+        .dedup_ok()
+        .yield_after(NonZeroUsize::MIN);
+    assert_eq!(stream.poll_next_unpin(&mut cx), Poll::Ready(Some(Ok(1))));
+    assert_eq!(stream.poll_next_unpin(&mut cx), Poll::Pending);
+    assert!(wake_flag.0.swap(false, Ordering::Relaxed));
 }
 
 #[test]

@@ -19,7 +19,9 @@ mod debounce;
 pub use self::debounce::Debounce;
 
 mod dedup;
-pub use self::dedup::{Dedup, DedupBy, DedupByKey, DedupErr, DedupOk};
+pub use self::dedup::{
+    Dedup, DedupBy, DedupByKey, DedupErr, DedupOk, NeverYield, YieldAfter, YieldStrategy,
+};
 
 mod default_if_empty;
 pub use self::default_if_empty::DefaultIfEmpty;
@@ -135,15 +137,6 @@ fn poll_latest_ready<St: Stream>(
     (latest_item, false)
 }
 
-/// The maximum number of consecutive items that are discarded during a single
-/// invocation of [`Stream::poll_next()`] by combinators without a
-/// `max_ready_count` argument.
-///
-/// Same limit as in `FuturesUnordered` of the `futures` crate.
-/// Keep the value in sync with the [Polling ready items](StreamExt#polling-ready-items)
-/// docs.
-const MAX_DISCARDED_COUNT: usize = 32;
-
 /// Returns `Pending` and wakes the task if the stream might still be ready.
 ///
 /// The self-wake ensures that polling the stream continues. It is not needed
@@ -181,13 +174,20 @@ fn pending_and_wake_if<T>(cx: &mut Context<'_>, stream_maybe_ready: bool) -> Pol
 /// Whether the value also affects which items are yielded is documented for
 /// each combinator.
 ///
-/// The `dedup` combinators take no such argument. They discard at most 32
-/// consecutive items during a single invocation before waking themselves up,
-/// which does not affect which items are yielded.
+/// The `dedup` combinators never wake themselves up by default, like
+/// [`filter()`](futures_util::StreamExt::filter). Polling an input stream that
+/// is always ready and yields only items that are discarded never returns.
+/// Their `yield_after(max_discarded_count)` method, e.g.
+/// [`Dedup::yield_after()`], limits how many items are discarded consecutively
+/// during a single invocation. The guidance above applies to
+/// `max_discarded_count` as well. It does not affect which items are yielded.
 pub trait StreamExt: Stream {
     /// Filters out subsequent/adjacent stream items.
     ///
     /// Equivalent to `distinctUntilChanged` in RxJS.
+    ///
+    /// Never yields to the executor while discarding items, see
+    /// [Polling ready items](StreamExt#polling-ready-items).
     fn dedup(self) -> Dedup<Self>
     where
         Self: Sized,

@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   It is implemented for closures and for `DefaultItem`, which yields `Default::default()`.
   `DefaultItem` can be created with `DefaultItem::new()` or `Default::default()` and is `Copy`.
   `end_with()` and `default_if_empty_with()` accept any `MakeItem`, not only closures.
+- The `dedup` stream types take a `YieldStrategy` type parameter, which decides when they yield to the executor while discarding items.
+  The default strategy `NeverYield` never yields, like `filter()`.
+  Their `yield_after(max_discarded_count)` method switches to the strategy `YieldAfter`, which yields after discarding `max_discarded_count` consecutive items.
+  Use it if the input stream might be always ready and yield only items that are discarded, e.g. a synchronous stream.
+  Otherwise, polling the stream never returns.
 
 ### Changed
 
@@ -35,11 +40,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** The free functions `filter_distinct_until_changed()`, `filter_distinct_until_changed_ok()` and `filter_distinct_until_changed_err()`.
   Use the `StreamExt` methods `dedup()`, `dedup_ok()` and `dedup_err()` instead.
 - **Breaking:** `DistinctState`, which was only needed for the removed free functions.
-
-### Fixed
-
-- The `dedup` methods no longer block the executor forever if the input stream is always ready and yields only items that are discarded.
-  They yield to the executor after discarding 32 consecutive items.
 
 ## [0.6.2] - 2026-11-23
 
