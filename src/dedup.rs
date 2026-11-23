@@ -165,7 +165,7 @@ impl<T: Clone + PartialEq> FilterState<T> for Option<T> {
 pin_project! {
     /// Result of [`StreamExt::dedup()`](crate::StreamExt::dedup).
     #[derive(Debug)]
-    #[must_use = "streams do nothing unless polled or .awaited"]
+    #[must_use = "streams do nothing unless polled"]
     pub struct Dedup<St: Stream> {
         #[pin]
         inner: FilterStatefulSync<St, Option<St::Item>>,
@@ -220,7 +220,7 @@ where
 pin_project! {
     /// Result of [`StreamExt::dedup_by()`](crate::StreamExt::dedup_by).
     #[derive(Debug)]
-    #[must_use = "streams do nothing unless polled or .awaited"]
+    #[must_use = "streams do nothing unless polled"]
     pub struct DedupBy<St: Stream, F> {
         #[pin]
         inner: FilterStatefulSync<St, ByState<St::Item, F>>,
@@ -285,7 +285,7 @@ where
 pin_project! {
     /// Result of [`StreamExt::dedup_by_key()`](crate::StreamExt::dedup_by_key).
     #[derive(Debug)]
-    #[must_use = "streams do nothing unless polled or .awaited"]
+    #[must_use = "streams do nothing unless polled"]
     pub struct DedupByKey<St, K, F> {
         #[pin]
         inner: FilterStatefulSync<St, ByKeyState<K, F>>,
@@ -355,7 +355,7 @@ where
 pin_project! {
     /// Result of [`StreamExt::dedup_ok()`](crate::StreamExt::dedup_ok).
     #[derive(Debug)]
-    #[must_use = "streams do nothing unless polled or .awaited"]
+    #[must_use = "streams do nothing unless polled"]
     pub struct DedupOk<St, T> {
         #[pin]
         inner: FilterStatefulSync<St, OkState<T>>,
@@ -420,7 +420,7 @@ where
 pin_project! {
     /// Result of [`StreamExt::dedup_err()`](crate::StreamExt::dedup_err).
     #[derive(Debug)]
-    #[must_use = "streams do nothing unless polled or .awaited"]
+    #[must_use = "streams do nothing unless polled"]
     pub struct DedupErr<St, E> {
         #[pin]
         inner: FilterStatefulSync<St, ErrState<E>>,

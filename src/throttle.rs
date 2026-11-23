@@ -55,7 +55,7 @@ pin_project! {
         doc = "Also returned by [`tokio::StreamExt::throttle_interval()`](crate::tokio::StreamExt::throttle_interval)."
     )]
     #[derive(Debug)]
-    #[must_use = "streams do nothing unless polled or .awaited"]
+    #[must_use = "streams do nothing unless polled"]
     pub struct Throttle<St: Stream, Th: Throttler<<St as Stream>::Item>> {
         #[pin]
         stream: Fuse<St>,

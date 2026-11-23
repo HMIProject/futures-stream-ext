@@ -24,7 +24,7 @@ pin_project! {
         doc = "Also returned by [`tokio::StreamExt::debounce()`](crate::tokio::StreamExt::debounce)."
     )]
     #[derive(Debug)]
-    #[must_use = "streams do nothing unless polled or .awaited"]
+    #[must_use = "streams do nothing unless polled"]
     #[project = DebounceProjection]
     pub struct Debounce<St: Stream, S> {
         #[pin]
