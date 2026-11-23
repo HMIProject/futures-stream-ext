@@ -82,8 +82,9 @@ impl<St: FusedStream, State> FilterStatefulSync<St, State> {
     }
 }
 
-/// Implements `yield_after()` for a public wrapper of [`FilterStatefulSync`].
-macro_rules! impl_yield_after {
+/// Implements `yield_after()` and [`FusedStream`] for a public wrapper of
+/// [`FilterStatefulSync`].
+macro_rules! impl_filter_wrapper {
     ($name:ident<$($param:ident),*>) => {
         impl<$($param),*> $name<$($param),*>
         where
@@ -107,12 +108,7 @@ macro_rules! impl_yield_after {
                 self
             }
         }
-    };
-}
 
-/// Implements [`FusedStream`] for a public wrapper of [`FilterStatefulSync`].
-macro_rules! impl_fused_stream {
-    ($name:ident<$($param:ident),*>) => {
         impl<$($param),*> FusedStream for $name<$($param),*>
         where
             Self: Stream,
@@ -430,17 +426,11 @@ where
     delegate_stream_to_inner!();
 }
 
-impl_yield_after!(Dedup<St>);
-impl_yield_after!(DedupBy<St, F>);
-impl_yield_after!(DedupByKey<St, K, F>);
-impl_yield_after!(DedupOk<St, T>);
-impl_yield_after!(DedupErr<St, E>);
-
-impl_fused_stream!(Dedup<St>);
-impl_fused_stream!(DedupBy<St, F>);
-impl_fused_stream!(DedupByKey<St, K, F>);
-impl_fused_stream!(DedupOk<St, T>);
-impl_fused_stream!(DedupErr<St, E>);
+impl_filter_wrapper!(Dedup<St>);
+impl_filter_wrapper!(DedupBy<St, F>);
+impl_filter_wrapper!(DedupByKey<St, K, F>);
+impl_filter_wrapper!(DedupOk<St, T>);
+impl_filter_wrapper!(DedupErr<St, E>);
 
 #[cfg(test)]
 mod tests;
