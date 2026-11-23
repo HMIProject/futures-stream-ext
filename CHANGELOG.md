@@ -21,6 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Throttler::on_tick()` takes `item_yielded: bool` instead of `Option<&T>`.
   `IntervalThrottler` no longer implements `Stream`.
 
+### Removed
+
+- **Breaking:** `StreamExt::throttle_interval_with_sleep()`, `tokio::StreamExt::throttle_interval()` and `IntervalThrottlerConfig`.
+  Replace `throttle_interval_with_sleep::<S>(IntervalThrottlerConfig { period, edge }, max_ready_count)` with `throttle(IntervalThrottler::<S>::new(period, edge), max_ready_count)`.
+  With Tokio, use `tokio::TokioIntervalThrottler::new(period, edge)`.
+
 ## [0.6.2] - 2026-11-23
 
 ### Added
