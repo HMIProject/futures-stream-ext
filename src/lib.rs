@@ -251,6 +251,21 @@ pub trait StreamExt: Stream {
     /// Filters out items that arrive in quick succession. Only the last item from
     /// each sequence is emitted. All preceding items are discarded.
     ///
+    /// Equivalent to `debounceTime` in RxJS. In the following marble diagram,
+    /// time passes from left to right, `|` marks the end of a stream, and the
+    /// delay spans 3 columns:
+    ///
+    /// ```text
+    /// input:   -ab-c-d-e----------f-g-|
+    /// result:  -----------e-----------g|
+    /// ```
+    ///
+    /// Each item restarts the delay. `e` is yielded 3 columns after it arrived,
+    /// because no further item arrived in the meantime. `f` is discarded,
+    /// because `g` arrived before the delay elapsed. `g` is yielded as soon as
+    /// the input stream ended, without waiting for the delay to elapse, because
+    /// no newer item can arrive anymore. The result ends immediately afterwards.
+    ///
     /// The delay is implemented by the given [`Sleep`] type.
     ///
     /// See [Polling ready items](StreamExt#polling-ready-items) for choosing

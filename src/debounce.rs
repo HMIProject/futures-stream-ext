@@ -75,14 +75,16 @@ where
             reset_or_sleep(sleep.as_mut(), *delay);
         }
 
+        if stream.is_terminated() {
+            // Stream has finished. No newer item can arrive that would replace
+            // the pending item, so yield it immediately without waiting for the
+            // delay to elapse. Ends the stream if no item is pending.
+            return Poll::Ready(pending_item.take());
+        }
+
         if pending_item.is_none() {
-            return if stream.is_terminated() {
-                // Stream has finished.
-                Poll::Ready(None)
-            } else {
-                // New stream items may arrive later.
-                Poll::Pending
-            };
+            // New stream items may arrive later.
+            return Poll::Pending;
         }
 
         let sleep = sleep

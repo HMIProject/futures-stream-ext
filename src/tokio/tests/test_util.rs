@@ -61,16 +61,32 @@ pub(super) fn alternating_delay_stream(
     })
 }
 
-/// Finite stream of items that arrive at the given points in time
-/// (milliseconds since `started_at`).
+/// Finite stream of `usize` items that arrive at the scheduled points
+/// in time.
+///
+/// The `schedule` consists of `(arrival_millis, item)` pairs with times in
+/// milliseconds since `started_at`. Arrival times must be non-decreasing,
+/// because the items are produced sequentially.
+///
+/// The stream ends at `finished_at_millis` (milliseconds since `started_at`),
+/// but never before the last item has been yielded. If `finished_at_millis`
+/// is not later than the last arrival, the stream ends immediately after
+/// that item.
+///
+/// Uses plain `u64` offsets instead of [`Duration`] to keep the call sites
+/// of small unit tests concise.
 pub(super) fn scheduled_stream(
     started_at: Instant,
     schedule: impl IntoIterator<Item = (u64, usize)>,
+    finished_at_millis: u64,
 ) -> impl Stream<Item = usize> {
-    stream::iter(schedule).then(move |(arrival_millis, item)| async move {
-        sleep_until(started_at + Duration::from_millis(arrival_millis)).await;
-        item
-    })
+    let sleep_until_millis = move |millis| sleep_until(started_at + Duration::from_millis(millis));
+    stream::iter(schedule)
+        .then(move |(arrival_millis, item)| async move {
+            sleep_until_millis(arrival_millis).await;
+            item
+        })
+        .chain(stream::once(sleep_until_millis(finished_at_millis)).filter_map(|()| async { None }))
 }
 
 /// Collects all items with their emission time (milliseconds since `started_at`).
