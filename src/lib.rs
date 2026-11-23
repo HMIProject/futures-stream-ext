@@ -172,8 +172,6 @@ pub trait StreamExt: Stream {
     /// Filters out subsequent/adjacent stream items.
     ///
     /// Equivalent to `distinctUntilChanged` in RxJS.
-    ///
-    /// See also: [`filter_dedup()`]
     fn dedup(self) -> Dedup<Self>
     where
         Self: Sized,
@@ -221,7 +219,7 @@ pub trait StreamExt: Stream {
 
     /// Filters out subsequent/adjacent `Ok` items in a result stream.
     ///
-    /// See also: [`filter_dedup_ok()`]
+    /// See also: [`dedup()`](Self::dedup)
     fn dedup_ok<T, E>(self) -> DedupOk<Self, T>
     where
         Self: Stream<Item = Result<T, E>> + Sized,
@@ -232,7 +230,7 @@ pub trait StreamExt: Stream {
 
     /// Filters out subsequent/adjacent `Err` items in a result stream.
     ///
-    /// See also: [`filter_dedup_err()`]
+    /// See also: [`dedup()`](Self::dedup)
     fn dedup_err<T, E>(self) -> DedupErr<Self, E>
     where
         Self: Stream<Item = Result<T, E>> + Sized,
