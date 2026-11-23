@@ -82,7 +82,7 @@ macro_rules! delegate_stream_to_inner {
 /// All other sequence items are discarded.
 ///
 /// See also: <https://rxmarbles.com/#distinctUntilChanged>
-pub fn filter_dedup<T>(last_item: &mut Option<T>, next_item: &T) -> bool
+fn filter_dedup<T>(last_item: &mut Option<T>, next_item: &T) -> bool
 where
     T: Clone + PartialEq,
 {
@@ -340,7 +340,7 @@ where
 /// All `Err` sequence items are passed through.
 ///
 /// See also: [`filter_dedup()`]
-pub fn filter_dedup_ok<T, E>(state: &mut DedupState<T>, next_result: &Result<T, E>) -> bool
+fn filter_dedup_ok<T, E>(state: &mut DedupState<T>, next_result: &Result<T, E>) -> bool
 where
     T: Clone + PartialEq,
 {
@@ -405,7 +405,7 @@ where
 /// All `Ok` sequence items are passed through.
 ///
 /// See also: [`filter_dedup()`]
-pub fn filter_dedup_err<T, E>(state: &mut DedupState<E>, next_result: &Result<T, E>) -> bool
+fn filter_dedup_err<T, E>(state: &mut DedupState<E>, next_result: &Result<T, E>) -> bool
 where
     E: Clone + PartialEq,
 {

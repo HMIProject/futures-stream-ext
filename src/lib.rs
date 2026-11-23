@@ -19,10 +19,7 @@ mod debounce;
 pub use self::debounce::Debounce;
 
 mod dedup;
-pub use self::dedup::{
-    Dedup, DedupBy, DedupByKey, DedupErr, DedupOk, DedupState, filter_dedup, filter_dedup_err,
-    filter_dedup_ok,
-};
+pub use self::dedup::{Dedup, DedupBy, DedupByKey, DedupErr, DedupOk, DedupState};
 
 mod default_if_empty;
 pub use self::default_if_empty::{DefaultIfEmpty, DefaultItem, MakeItem};
