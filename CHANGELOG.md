@@ -10,18 +10,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.6.2] - 2026-11-23
-
-### Added
-
-- `StreamExt::switch_map()` and the stream type `SwitchMap` map each item to an inner stream and yield only the items of the latest inner stream.
-  The previous inner stream is dropped when the next outer item arrives, like `switchMap` in RxJS.
-- `StreamExt::end_with()` and the stream type `EndWith` yield a final item after the stream ended, like `endWith` in RxJS.
-- `StreamExt::default_if_empty()`, `StreamExt::default_if_empty_with()` and the stream type `DefaultIfEmpty` yield a single item if the stream ends without yielding any items, like `defaultIfEmpty` in RxJS.
-  `default_if_empty()` yields `Default::default()`, `default_if_empty_with()` the item created by a closure.
-  The trait `MakeItem` creates the item. It is implemented for closures and for `DefaultItem`, which `default_if_empty()` uses.
-- The stream types `SwitchMap`, `EndWith` and `DefaultIfEmpty` implement `FusedStream`.
-
 ### Changed
 
 - **Breaking:** The stream types `Debounced` and `Throttled` were renamed to `Debounce` and `Throttle`, matching the names of the methods that return them.
@@ -33,6 +21,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `dedup_by()` invokes the comparison function with the last passed through item first, like `Itertools::dedup_by()` and unlike `Vec::dedup_by()`.
 - **Breaking:** `dedup_by_key()` no longer takes an initial key and always passes through the first item, like `Vec::dedup_by_key()`.
   Replace `distinct_until_changed_by_key(None, |item| Some(key(item)))` with `dedup_by_key(|item| key(item))`.
+
+## [0.6.2] - 2026-11-23
+
+### Added
+
+- `StreamExt::switch_map()` and the stream type `SwitchMap` map each item to an inner stream and yield only the items of the latest inner stream.
+  The previous inner stream is dropped when the next outer item arrives, like `switchMap` in RxJS.
+- `StreamExt::end_with()` and the stream type `EndWith` yield a final item after the stream ended, like `endWith` in RxJS.
+- `StreamExt::default_if_empty()`, `StreamExt::default_if_empty_with()` and the stream type `DefaultIfEmpty` yield a single item if the stream ends without yielding any items, like `defaultIfEmpty` in RxJS.
+  `default_if_empty()` yields `Default::default()`, `default_if_empty_with()` the item created by a closure.
+  The trait `MakeItem` creates the item. It is implemented for closures and for `DefaultItem`, which `default_if_empty()` uses.
+- The stream types `SwitchMap`, `EndWith` and `DefaultIfEmpty` implement `FusedStream`.
 
 ## [0.6.1] - 2026-11-20
 
