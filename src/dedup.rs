@@ -142,12 +142,7 @@ where
     }
 }
 
-impl<St, State, Y> FusedStream for FilterStatefulSync<St, State, Y>
-where
-    St: FusedStream,
-    State: FilterState<St::Item>,
-    Y: YieldStrategy,
-{
+impl<St: FusedStream, State, Y> FilterStatefulSync<St, State, Y> {
     fn is_terminated(&self) -> bool {
         self.stream.is_terminated()
     }
@@ -176,6 +171,21 @@ macro_rules! impl_yield_after {
                 $name {
                     inner: self.inner.yield_after(max_discarded_count),
                 }
+            }
+        }
+    };
+}
+
+/// Implements [`FusedStream`] for a public wrapper of [`FilterStatefulSync`].
+macro_rules! impl_fused_stream {
+    ($name:ident<$($param:ident),*>) => {
+        impl<$($param,)* Y> FusedStream for $name<$($param,)* Y>
+        where
+            Self: Stream,
+            St: FusedStream,
+        {
+            fn is_terminated(&self) -> bool {
+                self.inner.is_terminated()
             }
         }
     };
@@ -259,17 +269,6 @@ where
     delegate_stream_to_inner!();
 }
 
-impl<St, Y> FusedStream for Dedup<St, Y>
-where
-    Y: YieldStrategy,
-    St: FusedStream,
-    St::Item: Clone + PartialEq,
-{
-    fn is_terminated(&self) -> bool {
-        self.inner.is_terminated()
-    }
-}
-
 #[derive(Debug)]
 struct ByState<T, F> {
     last_item: Option<T>,
@@ -318,18 +317,6 @@ where
     F: FnMut(&St::Item, &St::Item) -> bool,
 {
     delegate_stream_to_inner!();
-}
-
-impl<St, F, Y> FusedStream for DedupBy<St, F, Y>
-where
-    Y: YieldStrategy,
-    St: FusedStream,
-    St::Item: Clone,
-    F: FnMut(&St::Item, &St::Item) -> bool,
-{
-    fn is_terminated(&self) -> bool {
-        self.inner.is_terminated()
-    }
 }
 
 #[derive(Debug)]
@@ -385,18 +372,6 @@ where
     F: FnMut(&St::Item) -> K,
 {
     delegate_stream_to_inner!();
-}
-
-impl<St, K, F, Y> FusedStream for DedupByKey<St, K, F, Y>
-where
-    Y: YieldStrategy,
-    St: FusedStream,
-    K: PartialEq,
-    F: FnMut(&St::Item) -> K,
-{
-    fn is_terminated(&self) -> bool {
-        self.inner.is_terminated()
-    }
 }
 
 /// Selects the values of [`Result`] items that are filtered by [`ResultState`].
@@ -499,17 +474,6 @@ where
     delegate_stream_to_inner!();
 }
 
-impl<St, T, E, Y> FusedStream for DedupOk<St, T, Y>
-where
-    Y: YieldStrategy,
-    St: FusedStream<Item = Result<T, E>>,
-    T: Clone + PartialEq,
-{
-    fn is_terminated(&self) -> bool {
-        self.inner.is_terminated()
-    }
-}
-
 pin_project! {
     /// Result of [`StreamExt::dedup_err()`](crate::StreamExt::dedup_err).
     #[derive(Debug)]
@@ -537,22 +501,17 @@ where
     delegate_stream_to_inner!();
 }
 
-impl<St, T, E, Y> FusedStream for DedupErr<St, E, Y>
-where
-    Y: YieldStrategy,
-    St: FusedStream<Item = Result<T, E>>,
-    E: Clone + PartialEq,
-{
-    fn is_terminated(&self) -> bool {
-        self.inner.is_terminated()
-    }
-}
-
 impl_yield_after!(Dedup<St>);
 impl_yield_after!(DedupBy<St, F>);
 impl_yield_after!(DedupByKey<St, K, F>);
 impl_yield_after!(DedupOk<St, T>);
 impl_yield_after!(DedupErr<St, E>);
+
+impl_fused_stream!(Dedup<St>);
+impl_fused_stream!(DedupBy<St, F>);
+impl_fused_stream!(DedupByKey<St, K, F>);
+impl_fused_stream!(DedupOk<St, T>);
+impl_fused_stream!(DedupErr<St, E>);
 
 #[cfg(test)]
 mod tests;
