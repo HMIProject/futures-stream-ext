@@ -25,7 +25,7 @@ mod default_if_empty;
 pub use self::default_if_empty::DefaultIfEmpty;
 
 mod end_with;
-pub use self::end_with::EndWith;
+pub use self::end_with::{EndWith, EndWithIfNonempty};
 
 mod make_item;
 pub use self::make_item::{DefaultItem, MakeItem};
@@ -432,12 +432,44 @@ pub trait StreamExt: Stream {
     ///
     /// `make_item` is usually a closure, but can be any [`MakeItem`], e.g.
     /// [`DefaultItem`].
+    ///
+    /// See also: [`end_with_if_nonempty()`](Self::end_with_if_nonempty)
     fn end_with<F>(self, make_item: F) -> EndWith<Self, F>
     where
         Self: Sized,
         F: MakeItem<Self::Item>,
     {
         EndWith::new(self, make_item)
+    }
+
+    /// Yields a final item after this stream ended, unless it ended without yielding any items.
+    ///
+    /// Like [`end_with()`](Self::end_with), but an empty stream stays empty, because there
+    /// is no last item that could become invalid.
+    ///
+    /// The item is created by `make_item` only after a non-empty stream ended.
+    /// `make_item` is dropped without being invoked if the stream ended empty.
+    ///
+    /// ```
+    /// use futures_stream_ext::StreamExt as _;
+    /// use futures_util::{FutureExt as _, StreamExt as _, stream};
+    ///
+    /// let end_with_if_nonempty = |items: Vec<u32>| {
+    ///     stream::iter(items)
+    ///         .end_with_if_nonempty(|| 0)
+    ///         .collect::<Vec<_>>()
+    ///         .now_or_never()
+    ///         .unwrap()
+    /// };
+    /// assert_eq!(end_with_if_nonempty(vec![1, 2]), [1, 2, 0]);
+    /// assert_eq!(end_with_if_nonempty(vec![]), []);
+    /// ```
+    fn end_with_if_nonempty<F>(self, make_item: F) -> EndWithIfNonempty<Self, F>
+    where
+        Self: Sized,
+        F: MakeItem<Self::Item>,
+    {
+        EndWithIfNonempty::new(self, make_item)
     }
 
     /// Yields the default item if this stream ends without yielding any items.
