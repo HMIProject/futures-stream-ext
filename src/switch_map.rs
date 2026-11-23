@@ -22,9 +22,9 @@ use super::StreamExt;
 pin_project! {
     /// Stream returned by [`StreamExt::switch_map()`].
     #[must_use = "streams do nothing unless polled"]
-    pub struct SwitchMap<S, U, F> {
+    pub struct SwitchMap<St, U, F> {
         #[pin]
-        outer: Fuse<S>,
+        outer: Fuse<St>,
 
         // `None` before the first outer item and after the current inner stream ended.
         #[pin]
@@ -39,9 +39,9 @@ pin_project! {
 }
 
 // Implemented manually, because closures do not implement `Debug`.
-impl<S, U, F> fmt::Debug for SwitchMap<S, U, F>
+impl<St, U, F> fmt::Debug for SwitchMap<St, U, F>
 where
-    S: fmt::Debug,
+    St: fmt::Debug,
     U: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -53,10 +53,10 @@ where
     }
 }
 
-impl<S, U, F> SwitchMap<S, U, F> {
-    pub(super) fn new(outer: S, switch_to: F, max_ready_count: NonZeroUsize) -> Self
+impl<St, U, F> SwitchMap<St, U, F> {
+    pub(super) fn new(outer: St, switch_to: F, max_ready_count: NonZeroUsize) -> Self
     where
-        S: Stream,
+        St: Stream,
     {
         Self {
             outer: outer.fuse(),
@@ -67,11 +67,11 @@ impl<S, U, F> SwitchMap<S, U, F> {
     }
 }
 
-impl<S, U, F> Stream for SwitchMap<S, U, F>
+impl<St, U, F> Stream for SwitchMap<St, U, F>
 where
-    S: Stream,
+    St: Stream,
     U: Stream,
-    F: FnMut(S::Item) -> U,
+    F: FnMut(St::Item) -> U,
 {
     type Item = U::Item;
 
@@ -130,11 +130,11 @@ where
     }
 }
 
-impl<S, U, F> FusedStream for SwitchMap<S, U, F>
+impl<St, U, F> FusedStream for SwitchMap<St, U, F>
 where
-    S: Stream,
+    St: Stream,
     U: Stream,
-    F: FnMut(S::Item) -> U,
+    F: FnMut(St::Item) -> U,
 {
     fn is_terminated(&self) -> bool {
         self.outer.is_terminated() && self.inner.is_none()
