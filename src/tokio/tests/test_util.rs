@@ -61,11 +61,20 @@ pub(super) fn alternating_delay_stream(
     })
 }
 
-/// Finite stream of items that arrive at the given points in time
-/// (milliseconds since `started_at`).
+/// Finite stream of `usize` items that arrive at the scheduled points
+/// in time.
 ///
-/// Ends at `finished_at_millis`, or immediately after the last item
-/// if that has already passed.
+/// The `schedule` consists of `(arrival_millis, item)` pairs with times in
+/// milliseconds since `started_at`. Arrival times must be non-decreasing,
+/// because the items are produced sequentially.
+///
+/// The stream ends at `finished_at_millis` (milliseconds since `started_at`),
+/// but never before the last item has been yielded. If `finished_at_millis`
+/// is not later than the last arrival, the stream ends immediately after
+/// that item.
+///
+/// Uses plain `u64` offsets instead of [`Duration`] to keep the call sites
+/// of small unit tests concise.
 pub(super) fn scheduled_stream(
     started_at: Instant,
     schedule: impl IntoIterator<Item = (u64, usize)>,
