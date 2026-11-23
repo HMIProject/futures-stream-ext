@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The `clone()` is only needed if `key` is a closure that is not `Copy`.
 - **Breaking:** `default_if_empty(make_item)` was renamed to `default_if_empty_with(make_item)`.
   `default_if_empty()` takes no argument and yields `Default::default()`.
+- **Breaking:** `Throttler::on_first_item()` and `Throttler::on_tick()` no longer take a `Context` argument.
+  The throttler is polled right after each callback.
 
 ### Removed
 

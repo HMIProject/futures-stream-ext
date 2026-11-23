@@ -73,9 +73,9 @@ impl Stream for NoThrottler {
 }
 
 impl<T> Throttler<T> for NoThrottler {
-    fn on_first_item(self: Pin<&mut Self>, _cx: &mut Context<'_>) {}
+    fn on_first_item(self: Pin<&mut Self>) {}
 
-    fn on_tick(self: Pin<&mut Self>, _cx: &mut Context<'_>, _yielded_item: Option<&T>) {}
+    fn on_tick(self: Pin<&mut Self>, _yielded_item: Option<&T>) {}
 }
 
 #[tokio::test]

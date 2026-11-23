@@ -28,10 +28,8 @@ pub trait Throttler<T>: Stream<Item = ()> {
     /// item that will be yielded may still change until `on_tick`
     /// is called.
     ///
-    /// The `cx` argument is only provided for consistency and can safely
-    /// be ignored in most cases. The throttler will be polled immediately
-    /// after this method returns.
-    fn on_first_item(self: Pin<&mut Self>, cx: &mut Context<'_>);
+    /// The throttler will be polled immediately after this method returns.
+    fn on_first_item(self: Pin<&mut Self>);
 
     /// The current interval has elapsed.
     ///
@@ -41,7 +39,7 @@ pub trait Throttler<T>: Stream<Item = ()> {
     /// Provides the pending item of the throttled input stream that is
     /// about to be yielded or `None` if no item has been received from the
     /// input stream during the last interval.
-    fn on_tick(self: Pin<&mut Self>, cx: &mut Context<'_>, yielded_item: Option<&T>);
+    fn on_tick(self: Pin<&mut Self>, yielded_item: Option<&T>);
 }
 
 pin_project! {
@@ -101,7 +99,7 @@ where
         if let Some(latest_item) = latest_item {
             if *this.throttler_idle {
                 *this.throttler_idle = false;
-                this.throttler.as_mut().on_first_item(cx);
+                this.throttler.as_mut().on_first_item();
             }
             *this.pending_item = Some(latest_item);
         }
@@ -118,7 +116,7 @@ where
 
         if this.throttler.as_mut().poll_next(cx).is_ready() {
             let yielded_item = this.pending_item.take();
-            this.throttler.as_mut().on_tick(cx, yielded_item.as_ref());
+            this.throttler.as_mut().on_tick(yielded_item.as_ref());
             if yielded_item.is_none() {
                 *this.throttler_idle = true;
             } else {
@@ -217,7 +215,7 @@ impl<S: Sleep> Stream for IntervalThrottler<S> {
 }
 
 impl<T, S: Sleep> Throttler<T> for IntervalThrottler<S> {
-    fn on_first_item(self: Pin<&mut Self>, _cx: &mut Context<'_>) {
+    fn on_first_item(self: Pin<&mut Self>) {
         let IntervalThrottlerProjection {
             config,
             sleep,
@@ -231,7 +229,7 @@ impl<T, S: Sleep> Throttler<T> for IntervalThrottler<S> {
         };
     }
 
-    fn on_tick(self: Pin<&mut Self>, _cx: &mut Context<'_>, yielded_item: Option<&T>) {
+    fn on_tick(self: Pin<&mut Self>, yielded_item: Option<&T>) {
         let IntervalThrottlerProjection {
             config,
             sleep,
