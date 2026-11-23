@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `DefaultItem` can be created with `DefaultItem::new()` or `Default::default()` and is `Copy`.
   `end_with()` and `default_if_empty_with()` accept any `MakeItem`, not only closures.
 - The `dedup` stream types never yield to the executor while discarding items by default, like `filter()`.
-  Their `yield_after(max_discarded_count)` method makes them yield after discarding `max_discarded_count` consecutive items.
+  Their `yield_after(max_ready_count)` method makes them yield after discarding `max_ready_count` consecutive ready items, like the `max_ready_count` argument of `debounce()` and `throttle()`.
   Use it if the input stream might be always ready and yield only items that are discarded, e.g. a synchronous stream.
   Otherwise, polling the stream never returns.
 

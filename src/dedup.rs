@@ -29,7 +29,7 @@ pin_project! {
         stream: St,
         state: State,
         // Unlimited if `None`.
-        max_discarded_count: Option<NonZeroUsize>,
+        max_ready_count: Option<NonZeroUsize>,
     }
 }
 
@@ -38,7 +38,7 @@ impl<St, State> FilterStatefulSync<St, State> {
         Self {
             stream,
             state,
-            max_discarded_count: None,
+            max_ready_count: None,
         }
     }
 }
@@ -52,8 +52,8 @@ where
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
-        let max_discarded_count = *this.max_discarded_count;
-        let mut discarded_count = 0;
+        let max_ready_count = *this.max_ready_count;
+        let mut ready_count = 0;
         loop {
             let Some(next_item) = ready!(this.stream.as_mut().poll_next(cx)) else {
                 return Poll::Ready(None);
@@ -61,8 +61,8 @@ where
             if this.state.filter_next(&next_item) {
                 return Poll::Ready(Some(next_item));
             }
-            discarded_count += 1;
-            if max_discarded_count.is_some_and(|max| discarded_count >= max.get()) {
+            ready_count += 1;
+            if max_ready_count.is_some_and(|max| ready_count >= max.get()) {
                 // Yield to the executor and continue during the next invocation.
                 cx.waker().wake_by_ref();
                 return Poll::Pending;
@@ -89,8 +89,8 @@ macro_rules! impl_yield_after {
         where
             St: Stream,
         {
-            /// Yields to the executor after discarding `max_discarded_count`
-            /// consecutive items.
+            /// Yields to the executor after discarding `max_ready_count`
+            /// consecutive ready items.
             ///
             /// By default, the stream never yields to the executor while
             /// discarding items, like
@@ -99,8 +99,11 @@ macro_rules! impl_yield_after {
             /// only items that are discarded, e.g. a synchronous stream.
             /// Otherwise, polling the stream would never return. Does not
             /// affect which items are yielded.
-            pub const fn yield_after(mut self, max_discarded_count: NonZeroUsize) -> Self {
-                self.inner.max_discarded_count = Some(max_discarded_count);
+            ///
+            /// See [Polling ready items](crate::StreamExt#polling-ready-items)
+            /// for how to choose `max_ready_count`.
+            pub const fn yield_after(mut self, max_ready_count: NonZeroUsize) -> Self {
+                self.inner.max_ready_count = Some(max_ready_count);
                 self
             }
         }

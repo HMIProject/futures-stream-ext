@@ -153,13 +153,23 @@ fn pending_and_wake_if<T>(cx: &mut Context<'_>, stream_maybe_ready: bool) -> Pol
 ///
 /// # Polling ready items
 ///
-/// Some combinators take a `max_ready_count` argument. They consume
-/// the items of their input stream that are ready at the same time, but only
-/// act on the latest one. The argument limits how many ready items are
-/// consumed consecutively during a single invocation of [`Stream::poll_next()`].
-/// After reaching the limit, the combinator wakes itself up and continues
-/// during the next invocation. This prevents an endless loop for input streams
-/// that are always ready.
+/// Some combinators take a `max_ready_count` argument. It limits how many ready
+/// items of the input stream are consumed consecutively during a single
+/// invocation of [`Stream::poll_next()`]. After reaching the limit, the
+/// combinator wakes itself up and continues during the next invocation. This
+/// prevents an endless loop for input streams that are always ready.
+///
+/// - [`debounce_with_sleep()`](Self::debounce_with_sleep),
+///   [`throttle()`](Self::throttle) and [`switch_map()`](Self::switch_map)
+///   require it. They consume the items that are ready at the same time, but
+///   only act on the latest one.
+/// - The `dedup` combinators accept it through their optional `yield_after()`
+///   method, e.g. [`Dedup::yield_after()`]. Without it, they never wake
+///   themselves up, like [`filter()`](futures_util::StreamExt::filter):
+///   polling an input stream that is always ready and yields only items that
+///   are discarded never returns.
+///
+/// Choosing the value:
 ///
 /// - [`NonZeroUsize::MIN`] is a safe default.
 /// - A greater value skips more items at once and needs fewer self-wakeups.
@@ -171,14 +181,6 @@ fn pending_and_wake_if<T>(cx: &mut Context<'_>, stream_maybe_ready: bool) -> Pol
 ///
 /// Whether the value also affects which items are yielded is documented for
 /// each combinator.
-///
-/// The `dedup` combinators never wake themselves up by default, like
-/// [`filter()`](futures_util::StreamExt::filter). Polling an input stream that
-/// is always ready and yields only items that are discarded never returns.
-/// Their `yield_after(max_discarded_count)` method, e.g.
-/// [`Dedup::yield_after()`], limits how many items are discarded consecutively
-/// during a single invocation. The guidance above applies to
-/// `max_discarded_count` as well. It does not affect which items are yielded.
 pub trait StreamExt: Stream {
     /// Filters out subsequent/adjacent stream items.
     ///
