@@ -442,11 +442,13 @@ pub trait StreamExt: Stream {
     /// yielding its first item. Otherwise, the stream is passed through unchanged.
     /// Equivalent to `defaultIfEmpty` in RxJS.
     ///
+    /// `make_item` is usually a closure, but can be any [`MakeItem`].
+    ///
     /// See also: [`default_if_empty()`](Self::default_if_empty)
     fn default_if_empty_with<F>(self, make_item: F) -> DefaultIfEmpty<Self, F>
     where
         Self: Sized,
-        F: FnOnce() -> Self::Item,
+        F: MakeItem<Self::Item>,
     {
         DefaultIfEmpty::new(self, make_item)
     }

@@ -405,6 +405,21 @@ fn default_if_empty_does_not_store_a_function_pointer() {
 }
 
 #[test]
+fn default_if_empty_with_accepts_custom_make_item() {
+    struct Fallback;
+
+    impl crate::MakeItem<u32> for Fallback {
+        fn make_item(self) -> u32 {
+            42
+        }
+    }
+
+    let mut stream = stream::empty().default_if_empty_with(Fallback);
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(42)));
+    assert_eq!(poll_next(&mut stream), Poll::Ready(None));
+}
+
+#[test]
 fn default_if_empty_passes_through_non_empty_stream() {
     let mut stream = stream::iter([1, 2]).default_if_empty();
     assert_eq!(poll_next(&mut stream), Poll::Ready(Some(1)));
