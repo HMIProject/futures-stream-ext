@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** The stream types `Debounced` and `Throttled` were renamed to `Debounce` and `Throttle`, matching the names of the methods that return them.
 - **Breaking:** `Throttler::on_first_item()` and `Throttler::on_tick()` no longer take a `Context` argument.
   The throttler is polled right after each callback.
+- **Breaking:** `debounce()` moved from `tokio::StreamExt` to `StreamExt`, where it requires the `tokio` feature.
+  The `tokio::StreamExt` trait was removed, so only one `StreamExt` of this crate needs to be imported.
 - **Breaking:** `debounce()`, `debounce_with_sleep()`, `throttle()` and `switch_map()` no longer take a `max_ready_count` argument.
   It defaults to `NonZeroUsize::MIN` and can be set with the `yield_after(max_ready_count)` method of the returned stream, like for the `dedup` streams.
   Replace `throttle(throttler, max_ready_count)` with `throttle(throttler).yield_after(max_ready_count)` and omit `yield_after()` for `NonZeroUsize::MIN`.

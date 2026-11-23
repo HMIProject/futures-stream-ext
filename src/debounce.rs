@@ -18,6 +18,11 @@ use crate::{Sleep, pending_and_wake_if, poll_latest_ready, reset_or_sleep};
 
 pin_project! {
     /// Result of [`StreamExt::debounce_with_sleep()`](crate::StreamExt::debounce_with_sleep).
+    #[cfg_attr(
+        feature = "tokio",
+        doc = "",
+        doc = "Also returned by [`StreamExt::debounce()`](crate::StreamExt::debounce)."
+    )]
     #[derive(Debug)]
     #[must_use = "streams do nothing unless polled"]
     #[project = DebounceProjection]

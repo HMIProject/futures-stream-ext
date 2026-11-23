@@ -1,13 +1,9 @@
 // SPDX-FileCopyrightText: The futures-stream-ext authors
 // SPDX-License-Identifier: MPL-2.0
 
-//! Extensions that depend on the Tokio runtime.
+//! [`Sleep`](crate::Sleep) implementation for the Tokio runtime.
 
 use std::{pin::Pin, time::Duration};
-
-use futures_util::Stream;
-
-use crate::{Debounce, StreamExt as _};
 
 /// [`IntervalThrottler`](crate::IntervalThrottler) using [`tokio::time::Sleep`].
 pub type TokioIntervalThrottler = crate::IntervalThrottler<tokio::time::Sleep>;
@@ -29,24 +25,6 @@ impl crate::Sleep for tokio::time::Sleep {
         tokio::time::Sleep::reset(self, now + delay);
     }
 }
-
-/// Extension trait for [`Stream`] using the Tokio runtime.
-///
-/// See also: [`crate::StreamExt`]
-pub trait StreamExt: Stream {
-    /// Debounces an input stream using [`tokio::time::Sleep`].
-    ///
-    /// See [`debounce_with_sleep()`](crate::StreamExt::debounce_with_sleep) for
-    /// details.
-    fn debounce(self, delay: Duration) -> Debounce<Self, tokio::time::Sleep>
-    where
-        Self: Sized,
-    {
-        self.debounce_with_sleep(delay)
-    }
-}
-
-impl<St: Stream> StreamExt for St {}
 
 #[cfg(test)]
 mod tests;

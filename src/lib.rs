@@ -149,8 +149,8 @@ fn pending_and_wake_if<T>(cx: &mut Context<'_>, stream_maybe_ready: bool) -> Pol
 
 /// Extension trait for [`Stream`].
 ///
-/// Runtime-agnostic. Extensions that depend on the Tokio runtime are provided
-/// by `tokio::StreamExt` (requires the `tokio` feature).
+/// Runtime-agnostic. Methods that use the Tokio runtime require the `tokio`
+/// feature.
 ///
 /// # Polling ready items
 ///
@@ -286,6 +286,18 @@ pub trait StreamExt: Stream {
         Self: Sized,
     {
         Debounce::new(self, delay)
+    }
+
+    /// Debounces an input stream using [`tokio::time::Sleep`](::tokio::time::Sleep).
+    ///
+    /// See [`debounce_with_sleep()`](Self::debounce_with_sleep) for details.
+    #[cfg(feature = "tokio")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "tokio")))]
+    fn debounce(self, delay: Duration) -> Debounce<Self, ::tokio::time::Sleep>
+    where
+        Self: Sized,
+    {
+        self.debounce_with_sleep(delay)
     }
 
     /// Throttles an input stream.
