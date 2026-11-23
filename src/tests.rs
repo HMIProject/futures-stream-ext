@@ -386,6 +386,14 @@ fn end_with_yields_final_item_after_empty_stream() {
 }
 
 #[test]
+fn end_with_accepts_default_item() {
+    let mut stream = stream::iter([1]).end_with(crate::DefaultItem::new());
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(1)));
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(0)));
+    assert_eq!(poll_next(&mut stream), Poll::Ready(None));
+}
+
+#[test]
 fn end_with_creates_final_item_only_after_stream_ended() {
     let queue = Rc::new(RefCell::new(VecDeque::from([1])));
     let created = Rc::new(Cell::new(false));

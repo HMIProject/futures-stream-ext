@@ -10,6 +10,8 @@ use std::{
 use futures_util::{Stream, stream::FusedStream};
 use pin_project_lite::pin_project;
 
+use crate::MakeItem;
+
 #[cfg(doc)]
 use super::StreamExt;
 
@@ -50,7 +52,7 @@ impl<St, F> EndWith<St, F> {
 impl<St, F> Stream for EndWith<St, F>
 where
     St: Stream,
-    F: FnOnce() -> St::Item,
+    F: MakeItem<St::Item>,
 {
     type Item = St::Item;
 
@@ -61,7 +63,7 @@ where
         }
         let next = match ready!(this.stream.poll_next(cx)) {
             Some(item) => Some(item),
-            None => this.make_item.take().map(|make_item| make_item()),
+            None => this.make_item.take().map(MakeItem::make_item),
         };
         Poll::Ready(next)
     }
@@ -81,7 +83,7 @@ where
 impl<St, F> FusedStream for EndWith<St, F>
 where
     St: Stream,
-    F: FnOnce() -> St::Item,
+    F: MakeItem<St::Item>,
 {
     fn is_terminated(&self) -> bool {
         self.make_item.is_none()

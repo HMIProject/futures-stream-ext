@@ -12,10 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- The trait `MakeItem` creates the item that `DefaultIfEmpty` yields.
+- The trait `MakeItem` creates the item that `EndWith` and `DefaultIfEmpty` yield.
   It is implemented for closures and for `DefaultItem`, which yields `Default::default()`.
   `DefaultItem` can be created with `DefaultItem::new()` or `Default::default()` and is `Copy`.
-  `default_if_empty_with()` accepts any `MakeItem`, not only closures.
+  `end_with()` and `default_if_empty_with()` accept any `MakeItem`, not only closures.
 
 ### Changed
 
