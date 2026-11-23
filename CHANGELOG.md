@@ -31,7 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `dedup_by()` invokes the comparison function with the last passed through item first, like `Itertools::dedup_by()` and unlike `Vec::dedup_by()`.
 - **Breaking:** `dedup_by_key()` no longer takes an initial key and always passes through the first item, like `Vec::dedup_by_key()`.
   Replace `distinct_until_changed_by_key(None, |item| Some(key(item)))` with `dedup_by_key(|item| key(item))`.
-  Replace an initial key that is not `None`, i.e. `distinct_until_changed_by_key(Some(initial_key), |item| Some(key(item)))`, with `skip_while(move |item| future::ready(key(item) == initial_key)).dedup_by_key(|item| key(item))` to keep discarding leading items with the initial key.
+  Replace an initial key that is not `None`, i.e. `distinct_until_changed_by_key(Some(initial_key), |item| Some(key(item)))`, with `skip_while({ let key = key.clone(); move |item| futures_util::future::ready(key(item) == initial_key) }).dedup_by_key(move |item| key(item))` to keep discarding leading items with the initial key.
+  The `clone()` is only needed if `key` is a closure that is not `Copy`.
 - **Breaking:** `default_if_empty(make_item)` was renamed to `default_if_empty_with(make_item)`.
   `default_if_empty()` takes no argument and yields `Default::default()`.
 
