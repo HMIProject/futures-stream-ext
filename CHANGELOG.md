@@ -21,7 +21,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** The `distinct_until_changed` family was renamed to `dedup`, following `Vec::dedup()` and `Itertools::dedup()`:
   - The methods `distinct_until_changed()`, `distinct_until_changed_by()`, `distinct_until_changed_by_key()`, `distinct_until_changed_ok()` and `distinct_until_changed_err()` to `dedup()`, `dedup_by()`, `dedup_by_key()`, `dedup_ok()` and `dedup_err()`.
   - The stream types `DistinctUntilChanged*` to `Dedup*`.
-  - `DistinctState` to `DedupState`.
   - `dedup_by()` invokes the comparison function with the last passed through item first, like `Itertools::dedup_by()` and unlike `Vec::dedup_by()`.
 - **Breaking:** `dedup_by_key()` no longer takes an initial key and always passes through the first item, like `Vec::dedup_by_key()`.
   Replace `distinct_until_changed_by_key(None, |item| Some(key(item)))` with `dedup_by_key(|item| key(item))`.
@@ -32,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Breaking:** The free functions `filter_distinct_until_changed()`, `filter_distinct_until_changed_ok()` and `filter_distinct_until_changed_err()`.
   Use the `StreamExt` methods `dedup()`, `dedup_ok()` and `dedup_err()` instead.
+- **Breaking:** `DistinctState`, which was only needed for the removed free functions.
 
 ## [0.6.2] - 2026-11-23
 

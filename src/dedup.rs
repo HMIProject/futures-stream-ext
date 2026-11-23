@@ -120,24 +120,17 @@ where
 /// Used by [`filter_dedup_ok()`] and [`filter_dedup_err()`]. Keeps the last
 /// value after an interruption to reuse its allocation.
 #[derive(Debug, Clone)]
-pub struct DedupState<T> {
+struct DedupState<T> {
     last_value: Option<T>,
     interrupted: bool,
 }
 
 impl<T> DedupState<T> {
-    #[must_use]
-    pub const fn new() -> Self {
+    const fn new() -> Self {
         Self {
             last_value: None,
             interrupted: false,
         }
-    }
-}
-
-impl<T> Default for DedupState<T> {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
