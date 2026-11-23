@@ -528,13 +528,20 @@ fn end_with_if_nonempty_accepts_streams_that_are_not_unpin() {
 fn end_with_and_default_if_empty_with_implement_debug_for_closures() {
     let debug = format!("{:?}", stream::iter([1]).end_with(|| 0));
     assert!(debug.starts_with("EndWith { stream: "), "{debug}");
-    assert!(debug.ends_with(", emit_item: true, .. }"), "{debug}");
+    assert!(
+        debug.ends_with(", mode: Always, nonempty: false, .. }"),
+        "{debug}"
+    );
     let debug = format!("{:?}", stream::iter([1]).end_with_if_nonempty(|| 0));
-    assert!(debug.starts_with("EndWith { stream: "), "{debug}");
-    assert!(debug.ends_with(", emit_item: false, .. }"), "{debug}");
+    assert!(
+        debug.ends_with(", mode: IfNonempty, nonempty: false, .. }"),
+        "{debug}"
+    );
     let debug = format!("{:?}", stream::iter([1]).default_if_empty_with(|| 0));
-    assert!(debug.starts_with("DefaultIfEmpty { stream: "), "{debug}");
-    assert!(debug.ends_with(", .. }"), "{debug}");
+    assert!(
+        debug.ends_with(", mode: IfEmpty, nonempty: false, .. }"),
+        "{debug}"
+    );
 }
 
 #[test]

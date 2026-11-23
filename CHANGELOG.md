@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `StreamExt::end_with_if_nonempty()` yields a final item after the stream ended, like `end_with()`, unless the stream ended without yielding any items.
-- The trait `MakeItem` creates the item that `EndWith` and `DefaultIfEmpty` yield.
+- The trait `MakeItem` creates the final item that `EndWith` yields.
   It is implemented for closures and for `DefaultItem`, which yields `Default::default()`.
   `DefaultItem` can be created with `DefaultItem::new()` or `Default::default()` and is `Copy`.
   `end_with()` and `default_if_empty_with()` accept any `MakeItem`, not only closures.
@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The `clone()` is only needed if `key` is a closure that is not `Copy`.
 - **Breaking:** `default_if_empty(make_item)` was renamed to `default_if_empty_with(make_item)`.
   `default_if_empty()` takes no argument and yields `Default::default()`.
+- **Breaking:** `default_if_empty()` and `default_if_empty_with()` return `EndWith`, like `end_with()` and `end_with_if_nonempty()`.
+  The stream type `DefaultIfEmpty` was removed.
 - **Breaking:** `Throttler::on_first_item()` and `Throttler::on_tick()` no longer take a `Context` argument.
   The throttler is polled right after each callback.
 - **Breaking:** `debounce()` moved from `tokio::StreamExt` to `StreamExt`, where it requires the `tokio` feature.

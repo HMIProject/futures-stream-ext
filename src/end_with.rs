@@ -7,7 +7,10 @@ use std::{
     task::{Context, Poll, ready},
 };
 
-use futures_util::{Stream, stream::FusedStream};
+use futures_util::{
+    Stream, StreamExt as _,
+    stream::{Fuse, FusedStream},
+};
 use pin_project_lite::pin_project;
 
 use crate::MakeItem;
@@ -15,21 +18,42 @@ use crate::MakeItem;
 #[cfg(doc)]
 use super::StreamExt;
 
+/// When the final item is yielded.
+#[derive(Debug, Clone, Copy)]
+enum Mode {
+    Always,
+    IfEmpty,
+    IfNonempty,
+}
+
+impl Mode {
+    /// Whether the final item is yielded after a stream that was (non-)empty.
+    const fn emit_item(self, nonempty: bool) -> bool {
+        match self {
+            Self::Always => true,
+            Self::IfEmpty => !nonempty,
+            Self::IfNonempty => nonempty,
+        }
+    }
+}
+
 pin_project! {
-    /// Stream returned by [`StreamExt::end_with()`] and
-    /// [`StreamExt::end_with_if_nonempty()`].
+    /// Stream returned by [`StreamExt::end_with()`],
+    /// [`StreamExt::end_with_if_nonempty()`], [`StreamExt::default_if_empty()`]
+    /// and [`StreamExt::default_if_empty_with()`].
     #[must_use = "streams do nothing unless polled"]
     pub struct EndWith<St, F> {
         #[pin]
-        stream: St,
+        stream: Fuse<St>,
 
-        // `None` after the stream ended. The final item has been created
-        // if `emit_item` was set. The stream is not polled anymore afterwards.
+        // `None` after the final item has been created or as soon as it is
+        // known that the final item will not be yielded.
         make_item: Option<F>,
 
-        // Whether the final item is created when the stream ends.
-        // Initially `false` only for `end_with_if_nonempty()`, set by the first item.
-        emit_item: bool,
+        mode: Mode,
+
+        // `true` after the stream yielded its first item.
+        nonempty: bool,
     }
 }
 
@@ -41,25 +65,31 @@ where
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("EndWith")
             .field("stream", &self.stream)
-            .field("emit_item", &self.emit_item)
+            .field("mode", &self.mode)
+            .field("nonempty", &self.nonempty)
             .finish_non_exhaustive()
     }
 }
 
-impl<St, F> EndWith<St, F> {
-    pub(super) const fn new(stream: St, make_item: F) -> Self {
-        Self::with_emit_item(stream, make_item, true)
+impl<St: Stream, F> EndWith<St, F> {
+    pub(super) fn new(stream: St, make_item: F) -> Self {
+        Self::with_mode(stream, make_item, Mode::Always)
     }
 
-    pub(super) const fn new_if_nonempty(stream: St, make_item: F) -> Self {
-        Self::with_emit_item(stream, make_item, false)
+    pub(super) fn new_if_nonempty(stream: St, make_item: F) -> Self {
+        Self::with_mode(stream, make_item, Mode::IfNonempty)
     }
 
-    const fn with_emit_item(stream: St, make_item: F, emit_item: bool) -> Self {
+    pub(super) fn new_if_empty(stream: St, make_item: F) -> Self {
+        Self::with_mode(stream, make_item, Mode::IfEmpty)
+    }
+
+    fn with_mode(stream: St, make_item: F, mode: Mode) -> Self {
         Self {
-            stream,
+            stream: stream.fuse(),
             make_item: Some(make_item),
-            emit_item,
+            mode,
+            nonempty: false,
         }
     }
 }
@@ -73,34 +103,29 @@ where
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.project();
-        if this.make_item.is_none() {
-            return Poll::Ready(None);
-        }
         let Some(item) = ready!(this.stream.poll_next(cx)) else {
-            // Taken unconditionally to drop the closure of an empty stream.
+            // Taken unconditionally to drop the closure if not needed.
             let make_item = this.make_item.take();
-            return Poll::Ready(
-                make_item
-                    .filter(|_| *this.emit_item)
-                    .map(MakeItem::make_item),
-            );
+            let emit_item = this.mode.emit_item(*this.nonempty);
+            return Poll::Ready(make_item.filter(|_| emit_item).map(MakeItem::make_item));
         };
-        *this.emit_item = true;
+        *this.nonempty = true;
+        if !this.mode.emit_item(true) {
+            // Drop the closure early, because it is not needed anymore.
+            *this.make_item = None;
+        }
         Poll::Ready(Some(item))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        if self.make_item.is_none() {
-            return (0, Some(0));
-        }
         let (lower, upper) = self.stream.size_hint();
-        // Unless already set, `emit_item` gets set only if the stream yields an item.
+        if self.make_item.is_none() {
+            return (lower, upper);
+        }
+        // Adds the final item to `count` remaining items of the stream.
         let add_final_item = |count: usize| {
-            if self.emit_item || count > 0 {
-                count.checked_add(1)
-            } else {
-                Some(0)
-            }
+            let nonempty = self.nonempty || count > 0;
+            count.checked_add(self.mode.emit_item(nonempty).into())
         };
         (
             add_final_item(lower).unwrap_or(usize::MAX),
@@ -115,6 +140,6 @@ where
     F: MakeItem<St::Item>,
 {
     fn is_terminated(&self) -> bool {
-        self.make_item.is_none()
+        self.stream.is_terminated() && self.make_item.is_none()
     }
 }
