@@ -19,7 +19,7 @@ async fn debounce_periodic_with_sleep<S: Sleep>(
 ) -> Vec<(u128, usize)> {
     let started_at = Instant::now();
     let debounced = alternating_delay_stream(started_at, item_period, item_period)
-        .debounce_with_sleep::<S>(debounce_delay, NonZeroUsize::MIN)
+        .debounce_with_sleep::<S>(debounce_delay)
         .take(num_items);
     collect_with_millis(started_at, debounced).await
 }
@@ -118,7 +118,8 @@ async fn debounce_schedule_with_sleep<S: Sleep>(
 ) -> Vec<(u128, usize)> {
     let started_at = Instant::now();
     let debounced = scheduled_stream(started_at, schedule, finished_at_millis)
-        .debounce_with_sleep::<S>(debounce_delay, max_ready_count);
+        .debounce_with_sleep::<S>(debounce_delay)
+        .yield_after(max_ready_count);
     collect_with_millis(started_at, debounced).await
 }
 

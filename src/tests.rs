@@ -77,7 +77,8 @@ impl Throttler for NoThrottler {
 #[tokio::test]
 async fn debounce_with_sleep_should_only_emit_last_of_ready_items() {
     let actual = stream::iter([1, 2, 3])
-        .debounce_with_sleep::<NoSleep>(Duration::ZERO, NonZeroUsize::MAX)
+        .debounce_with_sleep::<NoSleep>(Duration::ZERO)
+        .yield_after(NonZeroUsize::MAX)
         .collect::<Vec<_>>()
         .await;
     assert_eq!(vec![3], actual);
@@ -87,7 +88,8 @@ async fn debounce_with_sleep_should_only_emit_last_of_ready_items() {
 async fn debounce_with_sleep_should_limit_polling_of_ready_items() {
     // The input stream is always ready and never finishes.
     let actual = stream::iter(0..)
-        .debounce_with_sleep::<NoSleep>(Duration::ZERO, NonZeroUsize::new(3).unwrap())
+        .debounce_with_sleep::<NoSleep>(Duration::ZERO)
+        .yield_after(NonZeroUsize::new(3).unwrap())
         .take(2)
         .collect::<Vec<_>>()
         .await;
@@ -97,7 +99,7 @@ async fn debounce_with_sleep_should_limit_polling_of_ready_items() {
 #[tokio::test]
 async fn debounce_with_sleep_should_emit_every_item_with_zero_delay_and_min_ready_count() {
     let actual = stream::iter([1, 2, 3])
-        .debounce_with_sleep::<NoSleep>(Duration::ZERO, NonZeroUsize::MIN)
+        .debounce_with_sleep::<NoSleep>(Duration::ZERO)
         .collect::<Vec<_>>()
         .await;
     assert_eq!(vec![1, 2, 3], actual);
@@ -106,7 +108,8 @@ async fn debounce_with_sleep_should_emit_every_item_with_zero_delay_and_min_read
 #[tokio::test]
 async fn throttle_should_skip_ready_items_with_greater_ready_count() {
     let actual = stream::iter([1, 2, 3])
-        .throttle(NoThrottler, NonZeroUsize::new(2).unwrap())
+        .throttle(NoThrottler)
+        .yield_after(NonZeroUsize::new(2).unwrap())
         .collect::<Vec<_>>()
         .await;
     assert_eq!(vec![2, 3], actual);
@@ -115,7 +118,7 @@ async fn throttle_should_skip_ready_items_with_greater_ready_count() {
 #[tokio::test]
 async fn throttle_should_pass_through_all_items_if_always_ready() {
     let actual = stream::iter([1, 2, 3])
-        .throttle(NoThrottler, NonZeroUsize::MIN)
+        .throttle(NoThrottler)
         .collect::<Vec<_>>()
         .await;
     assert_eq!(vec![1, 2, 3], actual);
@@ -146,8 +149,9 @@ fn next_period_delay_should_skip_missed_periods() {
 
 #[test]
 fn switch_map_yields_only_inner_items_of_last_ready_outer_item() {
-    let mut stream =
-        stream::iter([1, 2]).switch_map(|n| stream::iter([n * 10, n * 10 + 1]), NonZeroUsize::MAX);
+    let mut stream = stream::iter([1, 2])
+        .switch_map(|n| stream::iter([n * 10, n * 10 + 1]))
+        .yield_after(NonZeroUsize::MAX);
     assert_eq!(poll_next(&mut stream), Poll::Ready(Some(20)));
     assert_eq!(poll_next(&mut stream), Poll::Ready(Some(21)));
     assert_eq!(poll_next(&mut stream), Poll::Ready(None));
@@ -156,8 +160,9 @@ fn switch_map_yields_only_inner_items_of_last_ready_outer_item() {
 #[test]
 fn switch_map_continues_after_inner_ended_while_outer_continues() {
     let queue = Rc::new(RefCell::new(VecDeque::from([1])));
-    let mut stream =
-        queued_stream(&queue).switch_map(|n| stream::iter([n * 10]), NonZeroUsize::MAX);
+    let mut stream = queued_stream(&queue)
+        .switch_map(|n| stream::iter([n * 10]))
+        .yield_after(NonZeroUsize::MAX);
     assert_eq!(poll_next(&mut stream), Poll::Ready(Some(10)));
     // Inner stream ended, outer stream pending: switch_map must not end.
     assert_eq!(poll_next(&mut stream), Poll::Pending);
@@ -170,10 +175,9 @@ fn switch_map_continues_after_inner_ended_while_outer_continues() {
 #[test]
 fn switch_map_discards_pending_items_of_stale_inner_stream() {
     let queue = Rc::new(RefCell::new(VecDeque::from([1])));
-    let mut stream = queued_stream(&queue).switch_map(
-        |n| stream::iter([n * 10, n * 10 + 1]).chain(stream::pending()),
-        NonZeroUsize::MAX,
-    );
+    let mut stream = queued_stream(&queue)
+        .switch_map(|n| stream::iter([n * 10, n * 10 + 1]).chain(stream::pending()))
+        .yield_after(NonZeroUsize::MAX);
     assert_eq!(poll_next(&mut stream), Poll::Ready(Some(10)));
 
     queue.borrow_mut().push_back(2);
@@ -186,14 +190,15 @@ fn switch_map_discards_pending_items_of_stale_inner_stream() {
 fn switch_map_accepts_streams_that_are_not_unpin() {
     let outer = stream::once(async { 1 });
     assert_not_unpin(&outer);
-    let mut stream = pin!(outer.switch_map(
-        |n| {
-            let inner = stream::once(async move { n * 10 });
-            assert_not_unpin(&inner);
-            inner
-        },
-        NonZeroUsize::MAX,
-    ));
+    let mut stream = pin!(
+        outer
+            .switch_map(|n| {
+                let inner = stream::once(async move { n * 10 });
+                assert_not_unpin(&inner);
+                inner
+            })
+            .yield_after(NonZeroUsize::MAX)
+    );
     assert_eq!(poll_next(&mut stream), Poll::Ready(Some(10)));
     assert_eq!(poll_next(&mut stream), Poll::Ready(None));
 }
@@ -202,7 +207,8 @@ fn switch_map_accepts_streams_that_are_not_unpin() {
 async fn switch_map_should_limit_polling_of_ready_outer_items() {
     // The outer stream is always ready and never finishes.
     let actual = stream::iter(0..)
-        .switch_map(|n| stream::iter([n]), NonZeroUsize::new(3).unwrap())
+        .switch_map(|n| stream::iter([n]))
+        .yield_after(NonZeroUsize::new(3).unwrap())
         .take(2)
         .collect::<Vec<_>>()
         .await;
@@ -224,8 +230,9 @@ fn switch_map_should_wake_itself_if_outer_stream_might_still_be_ready() {
     let mut cx = Context::from_waker(&waker);
 
     // The inner streams are always pending and never wake up the task.
-    let mut stream =
-        stream::iter(0..10).switch_map(|_| stream::pending::<u32>(), NonZeroUsize::new(3).unwrap());
+    let mut stream = stream::iter(0..10)
+        .switch_map(|_| stream::pending::<u32>())
+        .yield_after(NonZeroUsize::new(3).unwrap());
 
     // Consumes the outer items 0..=8 in chunks of 3. The limit is reached while
     // the outer stream might still be ready.
@@ -243,13 +250,12 @@ fn switch_map_should_wake_itself_if_outer_stream_might_still_be_ready() {
 #[test]
 fn switch_map_should_only_switch_to_latest_ready_outer_item() {
     let mut switched = Vec::new();
-    let mut stream = stream::iter(1..=5).switch_map(
-        |n| {
+    let mut stream = stream::iter(1..=5)
+        .switch_map(|n| {
             switched.push(n);
             stream::iter([n * 10])
-        },
-        NonZeroUsize::new(2).unwrap(),
-    );
+        })
+        .yield_after(NonZeroUsize::new(2).unwrap());
     assert_eq!(poll_next(&mut stream), Poll::Ready(Some(20)));
     assert_eq!(poll_next(&mut stream), Poll::Ready(Some(40)));
     assert_eq!(poll_next(&mut stream), Poll::Ready(Some(50)));
@@ -261,16 +267,15 @@ fn switch_map_should_only_switch_to_latest_ready_outer_item() {
 #[test]
 fn switch_map_should_drop_switch_to_after_outer_ended() {
     let captured = Rc::new(());
-    let mut stream = stream::iter([1]).switch_map(
-        {
+    let mut stream = stream::iter([1])
+        .switch_map({
             let captured = Rc::clone(&captured);
             move |n| {
                 let _ = &captured;
                 stream::iter([n * 10]).chain(stream::pending())
             }
-        },
-        NonZeroUsize::MAX,
-    );
+        })
+        .yield_after(NonZeroUsize::MAX);
     assert_eq!(Rc::strong_count(&captured), 2);
     assert_eq!(poll_next(&mut stream), Poll::Ready(Some(10)));
     // The outer stream ended, but the inner stream is still active.
@@ -283,7 +288,8 @@ fn switch_map_should_be_terminated_after_outer_and_inner_ended() {
     let queue = Rc::new(RefCell::new(VecDeque::from([1])));
     let mut stream = queued_stream(&queue)
         .take(1)
-        .switch_map(|n| stream::iter([n * 10]), NonZeroUsize::MAX);
+        .switch_map(|n| stream::iter([n * 10]))
+        .yield_after(NonZeroUsize::MAX);
     assert!(!stream.is_terminated());
     assert_eq!(poll_next(&mut stream), Poll::Ready(Some(10)));
     // The outer stream ended, but the inner stream has not reported its end yet.
@@ -297,15 +303,17 @@ fn switch_map_should_be_terminated_after_outer_and_inner_ended() {
 #[test]
 fn switch_map_should_report_size_hint() {
     let queue = Rc::new(RefCell::new(VecDeque::from([1])));
-    let mut stream =
-        queued_stream(&queue).switch_map(|n| stream::iter([n * 10]), NonZeroUsize::MAX);
+    let mut stream = queued_stream(&queue)
+        .switch_map(|n| stream::iter([n * 10]))
+        .yield_after(NonZeroUsize::MAX);
     // The outer stream continues.
     assert_eq!(stream.size_hint(), (0, None));
     assert_eq!(poll_next(&mut stream), Poll::Ready(Some(10)));
     assert_eq!(stream.size_hint(), (0, None));
 
-    let mut stream =
-        stream::iter([1]).switch_map(|n| stream::iter([n * 10, n * 10 + 1]), NonZeroUsize::MAX);
+    let mut stream = stream::iter([1])
+        .switch_map(|n| stream::iter([n * 10, n * 10 + 1]))
+        .yield_after(NonZeroUsize::MAX);
     assert_eq!(stream.size_hint(), (0, None));
     assert_eq!(poll_next(&mut stream), Poll::Ready(Some(10)));
     // The outer stream ended, so only the remaining items of the inner stream follow.
@@ -314,14 +322,14 @@ fn switch_map_should_report_size_hint() {
     assert_eq!(poll_next(&mut stream), Poll::Ready(None));
     assert_eq!(stream.size_hint(), (0, Some(0)));
 
-    let mut stream = stream::empty::<u32>().switch_map(|n| stream::iter([n]), NonZeroUsize::MIN);
+    let mut stream = stream::empty::<u32>().switch_map(|n| stream::iter([n]));
     assert_eq!(poll_next(&mut stream), Poll::Ready(None));
     assert_eq!(stream.size_hint(), (0, Some(0)));
 }
 
 #[test]
 fn switch_map_should_implement_debug_for_closures() {
-    let mut stream = stream::iter([1]).switch_map(|n| stream::iter([n * 10]), NonZeroUsize::MIN);
+    let mut stream = stream::iter([1]).switch_map(|n| stream::iter([n * 10]));
     assert_eq!(poll_next(&mut stream), Poll::Ready(Some(10)));
     let debug = format!("{stream:?}");
     assert!(debug.starts_with("SwitchMap { outer: "), "{debug}");

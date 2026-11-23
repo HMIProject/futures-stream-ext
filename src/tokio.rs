@@ -3,7 +3,7 @@
 
 //! Extensions that depend on the Tokio runtime.
 
-use std::{num::NonZeroUsize, pin::Pin, time::Duration};
+use std::{pin::Pin, time::Duration};
 
 use futures_util::Stream;
 
@@ -37,16 +37,12 @@ pub trait StreamExt: Stream {
     /// Debounces an input stream using [`tokio::time::Sleep`].
     ///
     /// See [`debounce_with_sleep()`](crate::StreamExt::debounce_with_sleep) for
-    /// details, including how to choose `max_ready_count`.
-    fn debounce(
-        self,
-        delay: Duration,
-        max_ready_count: NonZeroUsize,
-    ) -> Debounce<Self, tokio::time::Sleep>
+    /// details.
+    fn debounce(self, delay: Duration) -> Debounce<Self, tokio::time::Sleep>
     where
         Self: Sized,
     {
-        self.debounce_with_sleep(delay, max_ready_count)
+        self.debounce_with_sleep(delay)
     }
 }
 

@@ -54,7 +54,7 @@ where
 }
 
 impl<St, U, F> SwitchMap<St, U, F> {
-    pub(super) fn new(outer: St, switch_to: F, max_ready_count: NonZeroUsize) -> Self
+    pub(super) fn new(outer: St, switch_to: F) -> Self
     where
         St: Stream,
     {
@@ -62,8 +62,20 @@ impl<St, U, F> SwitchMap<St, U, F> {
             outer: outer.fuse(),
             inner: None,
             switch_to: Some(switch_to),
-            max_ready_count,
+            max_ready_count: NonZeroUsize::MIN,
         }
+    }
+
+    /// Yields to the executor after consuming `max_ready_count` consecutive
+    /// ready items of the input stream.
+    ///
+    /// Defaults to [`NonZeroUsize::MIN`]. See
+    /// [Polling ready items](crate::StreamExt#polling-ready-items) for how to
+    /// choose `max_ready_count`. It affects which inner streams are created,
+    /// see [`StreamExt::switch_map()`](crate::StreamExt::switch_map).
+    pub const fn yield_after(mut self, max_ready_count: NonZeroUsize) -> Self {
+        self.max_ready_count = max_ready_count;
+        self
     }
 }
 
