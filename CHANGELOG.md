@@ -37,6 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `default_if_empty()` takes no argument and yields `Default::default()`.
 - **Breaking:** `Throttler::on_first_item()` and `Throttler::on_tick()` no longer take a `Context` argument.
   The throttler is polled right after each callback.
+- **Breaking:** `debounce()` moved from `tokio::StreamExt` to `StreamExt`, where it requires the `tokio` feature.
+  The `tokio::StreamExt` trait was removed, so only one `StreamExt` of this crate needs to be imported.
 
 ### Removed
 

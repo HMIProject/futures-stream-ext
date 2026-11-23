@@ -21,7 +21,7 @@ pin_project! {
     #[cfg_attr(
         feature = "tokio",
         doc = "",
-        doc = "Also returned by [`tokio::StreamExt::debounce()`](crate::tokio::StreamExt::debounce)."
+        doc = "Also returned by [`StreamExt::debounce()`](crate::StreamExt::debounce)."
     )]
     #[derive(Debug)]
     #[must_use = "streams do nothing unless polled"]
