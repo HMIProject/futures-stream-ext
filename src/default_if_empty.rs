@@ -53,12 +53,30 @@ where
 pub struct DefaultItem<T>(PhantomData<fn() -> T>);
 
 impl<T> DefaultItem<T> {
-    pub(super) const fn new() -> Self {
+    /// Creates a `DefaultItem`.
+    #[must_use]
+    pub const fn new() -> Self {
         Self(PhantomData)
     }
 }
 
-// Implemented manually to avoid requiring `T: Debug`.
+// `Clone`, `Copy`, `Default` and `Debug` are implemented manually,
+// because the derives would require the same traits for `T`.
+
+impl<T> Clone for DefaultItem<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> Copy for DefaultItem<T> {}
+
+impl<T> Default for DefaultItem<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T> fmt::Debug for DefaultItem<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("DefaultItem")

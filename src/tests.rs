@@ -420,6 +420,23 @@ fn default_if_empty_with_accepts_custom_make_item() {
 }
 
 #[test]
+fn default_item_can_be_created_and_copied() {
+    // `NoDefault` implements neither `Clone` nor `Default`.
+    struct NoDefault;
+
+    // Compiles only if `DefaultItem<NoDefault>` is `Copy` and `Default`.
+    let default_item = crate::DefaultItem::<NoDefault>::new();
+    let default_items = [default_item, default_item, Default::default()];
+    assert_eq!(default_items.len(), 3);
+
+    let make_item = crate::DefaultItem::<u32>::default();
+    let mut stream = stream::empty().default_if_empty_with(make_item);
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(0)));
+    let mut stream = stream::empty().default_if_empty_with(make_item);
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(0)));
+}
+
+#[test]
 fn default_if_empty_passes_through_non_empty_stream() {
     let mut stream = stream::iter([1, 2]).default_if_empty();
     assert_eq!(poll_next(&mut stream), Poll::Ready(Some(1)));
