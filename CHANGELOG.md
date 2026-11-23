@@ -43,6 +43,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** The free functions `filter_distinct_until_changed()`, `filter_distinct_until_changed_ok()` and `filter_distinct_until_changed_err()`.
   Use the `StreamExt` methods `dedup()`, `dedup_ok()` and `dedup_err()` instead.
 - **Breaking:** `DistinctState`, which was only needed for the removed free functions.
+- **Breaking:** `StreamExt::throttle_interval_with_sleep()`, `tokio::StreamExt::throttle_interval()` and `IntervalThrottlerConfig`.
+  Replace `throttle_interval_with_sleep::<S>(IntervalThrottlerConfig { period, edge }, max_ready_count)` with `throttle(IntervalThrottler::<S>::new(period, edge), max_ready_count)`.
+  With Tokio, use `tokio::TokioIntervalThrottler::new(period, edge)`.
 
 ## [0.6.2] - 2026-11-23
 
