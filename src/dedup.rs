@@ -15,6 +15,12 @@ trait FilterState<T> {
     fn filter_next(&mut self, next_item: &T) -> bool;
 }
 
+/// The maximum number of consecutive items that are discarded during a single
+/// invocation of [`Stream::poll_next()`].
+///
+/// Same limit as in [`FuturesUnordered`](futures_util::stream::FuturesUnordered).
+const MAX_DISCARDED_COUNT: usize = 32;
+
 pin_project! {
     /// Filters stream items synchronously with a stateful predicate.
     ///
@@ -37,12 +43,19 @@ where
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
-        while let Some(next_item) = ready!(this.stream.as_mut().poll_next(cx)) {
+        for _ in 0..MAX_DISCARDED_COUNT {
+            let Some(next_item) = ready!(this.stream.as_mut().poll_next(cx)) else {
+                return Poll::Ready(None);
+            };
             if this.state.filter_next(&next_item) {
                 return Poll::Ready(Some(next_item));
             }
         }
-        Poll::Ready(None)
+        // Yield to the executor and continue during the next invocation.
+        // Otherwise, an input stream that is always ready and yields only
+        // items that are discarded would block the executor forever.
+        cx.waker().wake_by_ref();
+        Poll::Pending
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
