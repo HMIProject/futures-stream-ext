@@ -215,6 +215,20 @@ async fn switch_map_should_limit_polling_of_ready_outer_items() {
 
 struct WakeFlag(AtomicBool);
 
+impl WakeFlag {
+    /// Returns the flag and a waker that sets it.
+    fn new_waker() -> (Arc<Self>, Waker) {
+        let wake_flag = Arc::new(Self(AtomicBool::new(false)));
+        let waker = Waker::from(Arc::clone(&wake_flag));
+        (wake_flag, waker)
+    }
+
+    /// Returns `true` if the waker has been woken, and resets the flag.
+    fn take(&self) -> bool {
+        self.0.swap(false, Ordering::Relaxed)
+    }
+}
+
 impl Wake for WakeFlag {
     fn wake(self: Arc<Self>) {
         self.0.store(true, Ordering::Relaxed);
@@ -232,8 +246,7 @@ fn dedup_should_not_yield_to_the_executor_by_default() {
 
 #[test]
 fn dedup_should_yield_to_the_executor_after_discarding_items() {
-    let wake_flag = Arc::new(WakeFlag(AtomicBool::new(false)));
-    let waker = Waker::from(Arc::clone(&wake_flag));
+    let (wake_flag, waker) = WakeFlag::new_waker();
     let mut cx = Context::from_waker(&waker);
 
     // Always ready and yields 100 duplicates. Continues after yielding to the
@@ -249,7 +262,7 @@ fn dedup_should_yield_to_the_executor_after_discarding_items() {
         match stream.poll_next_unpin(&mut cx) {
             Poll::Ready(next_item) => break next_item,
             Poll::Pending => {
-                assert!(wake_flag.0.swap(false, Ordering::Relaxed));
+                assert!(wake_flag.take());
                 pending_count += 1;
             }
         }
@@ -260,8 +273,7 @@ fn dedup_should_yield_to_the_executor_after_discarding_items() {
 
 #[test]
 fn dedup_ok_should_yield_to_the_executor_after_discarding_items() {
-    let wake_flag = Arc::new(WakeFlag(AtomicBool::new(false)));
-    let waker = Waker::from(Arc::clone(&wake_flag));
+    let (wake_flag, waker) = WakeFlag::new_waker();
     let mut cx = Context::from_waker(&waker);
 
     // Always ready and yields only duplicates after the first item.
@@ -270,13 +282,12 @@ fn dedup_ok_should_yield_to_the_executor_after_discarding_items() {
         .yield_after(NonZeroUsize::MIN);
     assert_eq!(stream.poll_next_unpin(&mut cx), Poll::Ready(Some(Ok(1))));
     assert_eq!(stream.poll_next_unpin(&mut cx), Poll::Pending);
-    assert!(wake_flag.0.swap(false, Ordering::Relaxed));
+    assert!(wake_flag.take());
 }
 
 #[test]
 fn switch_map_should_wake_itself_if_outer_stream_might_still_be_ready() {
-    let wake_flag = Arc::new(WakeFlag(AtomicBool::new(false)));
-    let waker = Waker::from(Arc::clone(&wake_flag));
+    let (wake_flag, waker) = WakeFlag::new_waker();
     let mut cx = Context::from_waker(&waker);
 
     // The inner streams are always pending and never wake up the task.
@@ -287,13 +298,13 @@ fn switch_map_should_wake_itself_if_outer_stream_might_still_be_ready() {
     // the outer stream might still be ready.
     for _ in 0..3 {
         assert_eq!(stream.poll_next_unpin(&mut cx), Poll::Pending);
-        assert!(wake_flag.0.swap(false, Ordering::Relaxed));
+        assert!(wake_flag.take());
     }
 
     // Consumes the outer item 9 and the end of the outer stream. Only the outer
     // stream could wake up the task, but it has ended.
     assert_eq!(stream.poll_next_unpin(&mut cx), Poll::Pending);
-    assert!(!wake_flag.0.load(Ordering::Relaxed));
+    assert!(!wake_flag.take());
 }
 
 #[test]
