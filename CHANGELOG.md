@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** `Debounce` yields the pending item immediately when the input stream ends, instead of waiting for the delay to elapse, like `debounceTime` in RxJS.
 - **Breaking:** The stream types `Debounced` and `Throttled` were renamed to `Debounce` and `Throttle`, matching the names of the methods that return them.
 
 ## [0.6.2] - 2026-11-23

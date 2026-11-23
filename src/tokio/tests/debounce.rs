@@ -61,14 +61,22 @@ async fn should_debounce_a_periodic_input_stream() {
 }
 
 /// Debounces a finite stream with items that arrive at the given
-/// points in time (milliseconds since start).
+/// points in time (milliseconds since start) and that ends at
+/// `finished_at_millis`.
 ///
 /// Returns the emitted items with their emission time.
 async fn debounce_schedule(
     debounce_delay: Duration,
     schedule: impl IntoIterator<Item = (u64, usize)> + Clone,
+    finished_at_millis: u64,
 ) -> Vec<(u128, usize)> {
-    debounce_schedule_with_max_ready_count(debounce_delay, schedule, NonZeroUsize::MIN).await
+    debounce_schedule_with_max_ready_count(
+        debounce_delay,
+        schedule,
+        finished_at_millis,
+        NonZeroUsize::MIN,
+    )
+    .await
 }
 
 /// Like [`debounce_schedule()`], but with a custom `max_ready_count`.
@@ -79,11 +87,13 @@ async fn debounce_schedule(
 async fn debounce_schedule_with_max_ready_count(
     debounce_delay: Duration,
     schedule: impl IntoIterator<Item = (u64, usize)> + Clone,
+    finished_at_millis: u64,
     max_ready_count: NonZeroUsize,
 ) -> Vec<(u128, usize)> {
     let collected = debounce_schedule_with_sleep::<tokio::time::Sleep>(
         debounce_delay,
         schedule.clone(),
+        finished_at_millis,
         max_ready_count,
     )
     .await;
@@ -92,6 +102,7 @@ async fn debounce_schedule_with_max_ready_count(
         debounce_schedule_with_sleep::<DefaultResetSleep>(
             debounce_delay,
             schedule,
+            finished_at_millis,
             max_ready_count,
         )
         .await
@@ -102,23 +113,24 @@ async fn debounce_schedule_with_max_ready_count(
 async fn debounce_schedule_with_sleep<S: Sleep>(
     debounce_delay: Duration,
     schedule: impl IntoIterator<Item = (u64, usize)>,
+    finished_at_millis: u64,
     max_ready_count: NonZeroUsize,
 ) -> Vec<(u128, usize)> {
     let started_at = Instant::now();
-    let debounced = scheduled_stream(started_at, schedule)
+    let debounced = scheduled_stream(started_at, schedule, finished_at_millis)
         .debounce_with_sleep::<S>(debounce_delay, max_ready_count);
     collect_with_millis(started_at, debounced).await
 }
 
 #[tokio::test(start_paused = true)]
 async fn should_finish_on_empty_input_stream() {
-    let actual = debounce_schedule(ms(10), []).await;
+    let actual = debounce_schedule(ms(10), [], 0).await;
     assert_eq!(Vec::<(u128, usize)>::new(), actual);
 }
 
 #[tokio::test(start_paused = true)]
 async fn should_emit_single_item_after_delay() {
-    let actual = debounce_schedule(ms(10), [(5, 0)]).await;
+    let actual = debounce_schedule(ms(10), [(5, 0)], 100).await;
     assert_eq!(vec![(15, 0)], actual);
 }
 
@@ -126,7 +138,7 @@ async fn should_emit_single_item_after_delay() {
 async fn should_only_emit_the_last_item_of_a_burst() {
     // All items arrive within the delay window of their predecessor.
     // The delay restarts with each item.
-    let actual = debounce_schedule(ms(10), [(0, 0), (5, 1), (10, 2), (19, 3)]).await;
+    let actual = debounce_schedule(ms(10), [(0, 0), (5, 1), (10, 2), (19, 3)], 100).await;
     assert_eq!(vec![(29, 3)], actual);
 }
 
@@ -135,6 +147,7 @@ async fn should_only_emit_the_last_item_of_each_burst() {
     let actual = debounce_schedule(
         ms(10),
         [(0, 0), (5, 1), (30, 2), (35, 3), (39, 4), (100, 5)],
+        200,
     )
     .await;
     assert_eq!(vec![(15, 1), (49, 4), (110, 5)], actual);
@@ -142,21 +155,34 @@ async fn should_only_emit_the_last_item_of_each_burst() {
 
 #[tokio::test(start_paused = true)]
 async fn should_emit_all_items_that_arrive_slower_than_the_delay() {
-    let actual = debounce_schedule(ms(10), [(0, 0), (11, 1), (30, 2)]).await;
+    let actual = debounce_schedule(ms(10), [(0, 0), (11, 1), (30, 2)], 100).await;
     assert_eq!(vec![(10, 0), (21, 1), (40, 2)], actual);
 }
 
 #[tokio::test(start_paused = true)]
 async fn should_discard_items_that_are_ready_at_the_same_time() {
-    let actual = debounce_schedule(ms(10), [(0, 0), (0, 1), (0, 2), (20, 3), (20, 4)]).await;
+    let actual = debounce_schedule(ms(10), [(0, 0), (0, 1), (0, 2), (20, 3), (20, 4)], 100).await;
     assert_eq!(vec![(10, 2), (30, 4)], actual);
 }
 
 #[tokio::test(start_paused = true)]
-async fn should_emit_the_pending_item_after_the_input_stream_has_finished() {
-    // The input stream finishes immediately after the last item
-    // while it is still pending.
-    let actual = debounce_schedule(ms(10), [(0, 0), (3, 1)]).await;
+async fn should_emit_the_pending_item_immediately_when_the_input_stream_finishes() {
+    // The input stream finishes while the last item is still pending.
+    let actual = debounce_schedule(ms(10), [(0, 0), (3, 1)], 6).await;
+    assert_eq!(vec![(6, 1)], actual);
+}
+
+#[tokio::test(start_paused = true)]
+async fn should_emit_the_last_item_immediately_when_the_input_stream_finishes_with_it() {
+    // The input stream finishes immediately after the last item.
+    let actual = debounce_schedule(ms(10), [(0, 0), (3, 1)], 0).await;
+    assert_eq!(vec![(3, 1)], actual);
+}
+
+#[tokio::test(start_paused = true)]
+async fn should_emit_the_pending_item_after_the_delay_before_the_input_stream_finishes() {
+    // The delay of the last item elapses before the input stream finishes.
+    let actual = debounce_schedule(ms(10), [(0, 0), (3, 1)], 50).await;
     assert_eq!(vec![(13, 1)], actual);
 }
 
@@ -167,11 +193,13 @@ async fn should_emit_items_immediately_with_zero_delay() {
     // if they are polled together.
     assert_eq!(
         vec![(0, 0), (5, 2), (7, 3)],
-        debounce_schedule_with_max_ready_count(Duration::ZERO, schedule, NonZeroUsize::MAX).await
+        debounce_schedule_with_max_ready_count(Duration::ZERO, schedule, 100, NonZeroUsize::MAX)
+            .await
     );
     // Otherwise each of them is emitted.
     assert_eq!(
         vec![(0, 0), (5, 1), (5, 2), (7, 3)],
-        debounce_schedule_with_max_ready_count(Duration::ZERO, schedule, NonZeroUsize::MIN).await
+        debounce_schedule_with_max_ready_count(Duration::ZERO, schedule, 100, NonZeroUsize::MIN)
+            .await
     );
 }
