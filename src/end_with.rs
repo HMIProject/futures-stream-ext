@@ -16,120 +16,32 @@ use crate::MakeItem;
 use super::StreamExt;
 
 pin_project! {
-    /// Stream returned by [`StreamExt::end_with()`].
-    #[must_use = "streams do nothing unless polled"]
-    pub struct EndWith<St, F> {
-        #[pin]
-        stream: St,
-
-        // `None` after the stream ended and the final item has been created.
-        // The stream is not polled anymore afterwards.
-        make_item: Option<F>,
-    }
-}
-
-// Implemented manually, because closures do not implement `Debug`.
-impl<St, F> fmt::Debug for EndWith<St, F>
-where
-    St: fmt::Debug,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("EndWith")
-            .field("stream", &self.stream)
-            .finish_non_exhaustive()
-    }
-}
-
-impl<St, F> EndWith<St, F> {
-    pub(super) const fn new(stream: St, make_item: F) -> Self {
-        Self {
-            stream,
-            make_item: Some(make_item),
-        }
-    }
-}
-
-impl<St, F> Stream for EndWith<St, F>
-where
-    St: Stream,
-    F: MakeItem<St::Item>,
-{
-    type Item = St::Item;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = self.project();
-        if this.make_item.is_none() {
-            return Poll::Ready(None);
-        }
-        let next = match ready!(this.stream.poll_next(cx)) {
-            Some(item) => Some(item),
-            None => this.make_item.take().map(MakeItem::make_item),
-        };
-        Poll::Ready(next)
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        if self.make_item.is_none() {
-            return (0, Some(0));
-        }
-        let (lower, upper) = self.stream.size_hint();
-        (
-            lower.saturating_add(1),
-            upper.and_then(|upper| upper.checked_add(1)),
-        )
-    }
-}
-
-impl<St, F> FusedStream for EndWith<St, F>
-where
-    St: Stream,
-    F: MakeItem<St::Item>,
-{
-    fn is_terminated(&self) -> bool {
-        self.make_item.is_none()
-    }
-}
-
-pin_project! {
-    /// Stream returned by [`StreamExt::end_with_if_nonempty()`].
-    #[must_use = "streams do nothing unless polled"]
-    pub struct EndWithIfNonempty<St, F> {
+    /// Shared implementation of [`EndWith`] and [`EndWithIfNonempty`].
+    struct EndWithInner<St, F> {
         #[pin]
         stream: St,
 
         // `None` after the stream ended. The final item has been created
-        // unless the stream was empty. The stream is not polled anymore afterwards.
+        // if `emit_item` was set. The stream is not polled anymore afterwards.
         make_item: Option<F>,
 
-        // `true` after the stream yielded its first item.
-        nonempty: bool,
+        // Whether the final item is created when the stream ends.
+        // Initially `false` only for `EndWithIfNonempty`, set by the first item.
+        emit_item: bool,
     }
 }
 
-// Implemented manually, because closures do not implement `Debug`.
-impl<St, F> fmt::Debug for EndWithIfNonempty<St, F>
-where
-    St: fmt::Debug,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("EndWithIfNonempty")
-            .field("stream", &self.stream)
-            .field("nonempty", &self.nonempty)
-            .finish_non_exhaustive()
-    }
-}
-
-impl<St, F> EndWithIfNonempty<St, F> {
-    pub(super) const fn new(stream: St, make_item: F) -> Self {
+impl<St, F> EndWithInner<St, F> {
+    const fn new(stream: St, make_item: F, emit_item: bool) -> Self {
         Self {
             stream,
             make_item: Some(make_item),
-            nonempty: false,
+            emit_item,
         }
     }
 }
 
-impl<St, F> Stream for EndWithIfNonempty<St, F>
+impl<St, F> Stream for EndWithInner<St, F>
 where
     St: Stream,
     F: MakeItem<St::Item>,
@@ -146,11 +58,11 @@ where
             let make_item = this.make_item.take();
             return Poll::Ready(
                 make_item
-                    .filter(|_| *this.nonempty)
+                    .filter(|_| *this.emit_item)
                     .map(MakeItem::make_item),
             );
         };
-        *this.nonempty = true;
+        *this.emit_item = true;
         Poll::Ready(Some(item))
     }
 
@@ -159,36 +71,102 @@ where
             return (0, Some(0));
         }
         let (lower, upper) = self.stream.size_hint();
-        if self.nonempty {
-            return (
-                lower.saturating_add(1),
-                upper.and_then(|upper| upper.checked_add(1)),
-            );
-        }
-        // The final item follows only if the stream yields at least one item.
-        (
-            if lower == 0 {
-                0
+        // Unless already set, `emit_item` gets set only if the stream yields an item.
+        let add_final_item = |count: usize| {
+            if self.emit_item || count > 0 {
+                count.checked_add(1)
             } else {
-                lower.saturating_add(1)
-            },
-            upper.and_then(|upper| {
-                if upper == 0 {
-                    Some(0)
-                } else {
-                    upper.checked_add(1)
-                }
-            }),
+                Some(0)
+            }
+        };
+        (
+            add_final_item(lower).unwrap_or(usize::MAX),
+            upper.and_then(add_final_item),
         )
     }
 }
 
-impl<St, F> FusedStream for EndWithIfNonempty<St, F>
+/// Defines a public wrapper of [`EndWithInner`].
+macro_rules! end_with_wrapper {
+    ($(#[$attr:meta])* $name:ident, emit_item: $emit_item:literal) => {
+        pin_project! {
+            $(#[$attr])*
+            #[must_use = "streams do nothing unless polled"]
+            pub struct $name<St, F> {
+                #[pin]
+                inner: EndWithInner<St, F>,
+            }
+        }
+
+        impl<St, F> $name<St, F> {
+            pub(super) const fn new(stream: St, make_item: F) -> Self {
+                Self {
+                    inner: EndWithInner::new(stream, make_item, $emit_item),
+                }
+            }
+        }
+
+        impl<St, F> Stream for $name<St, F>
+        where
+            St: Stream,
+            F: MakeItem<St::Item>,
+        {
+            type Item = St::Item;
+
+            fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+                self.project().inner.poll_next(cx)
+            }
+
+            fn size_hint(&self) -> (usize, Option<usize>) {
+                self.inner.size_hint()
+            }
+        }
+
+        impl<St, F> FusedStream for $name<St, F>
+        where
+            St: Stream,
+            F: MakeItem<St::Item>,
+        {
+            fn is_terminated(&self) -> bool {
+                self.inner.make_item.is_none()
+            }
+        }
+    };
+}
+
+end_with_wrapper!(
+    /// Stream returned by [`StreamExt::end_with()`].
+    EndWith,
+    emit_item: true
+);
+
+end_with_wrapper!(
+    /// Stream returned by [`StreamExt::end_with_if_nonempty()`].
+    EndWithIfNonempty,
+    emit_item: false
+);
+
+// Implemented manually, because closures do not implement `Debug`.
+impl<St, F> fmt::Debug for EndWith<St, F>
 where
-    St: Stream,
-    F: MakeItem<St::Item>,
+    St: fmt::Debug,
 {
-    fn is_terminated(&self) -> bool {
-        self.make_item.is_none()
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EndWith")
+            .field("stream", &self.inner.stream)
+            .finish_non_exhaustive()
+    }
+}
+
+// Implemented manually, because closures do not implement `Debug`.
+impl<St, F> fmt::Debug for EndWithIfNonempty<St, F>
+where
+    St: fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EndWithIfNonempty")
+            .field("stream", &self.inner.stream)
+            .field("nonempty", &self.inner.emit_item)
+            .finish_non_exhaustive()
     }
 }
