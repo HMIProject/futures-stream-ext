@@ -225,6 +225,22 @@ async fn should_throttle_on_the_trailing_edge_with_long_pauses() {
     assert_eq!(expected, actual.as_slice());
 }
 
+#[tokio::test(start_paused = true)]
+async fn should_emit_a_lone_item_on_the_trailing_edge() {
+    // Each item arrives alone, i.e. no other item arrives before the next
+    // tick. It must be yielded at that tick and not be dropped.
+    // ms:   0 | 50 | 100 | 150 | ...
+    // item: 0 |  1 |   2 |   3 | ...
+    let item_delay = ms(50);
+    let period = ms(19);
+    let edge = IntervalEdge::Trailing;
+    let expected = &[(19, 0), (69, 1), (119, 2), (169, 3)];
+    let actual =
+        throttle_alternating_delay_stream(period, edge, item_delay, item_delay, expected.len())
+            .await;
+    assert_eq!(expected, actual.as_slice());
+}
+
 /// Zero and non-zero periods for both edges.
 fn finish_test_configs() -> impl Iterator<Item = (Duration, IntervalEdge)> {
     [Duration::ZERO, ms(1), ms(2)]
