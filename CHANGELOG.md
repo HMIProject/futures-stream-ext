@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     Replace them with `dedup_by_some_key(|result| result.as_ref().ok())` and `dedup_by_some_key(|result| result.as_ref().err())`.
     The stream types `DistinctUntilChangedOk` and `DistinctUntilChangedErr` were replaced by `DedupBySomeKey`.
   - `dedup_by()` invokes the comparison function with the last passed through item first, like `Itertools::dedup_by()` and unlike `Vec::dedup_by()`.
+- **Breaking:** `dedup_by_key()` no longer takes an initial key and always passes through the first item, like `Vec::dedup_by_key()`.
+  Replace `distinct_until_changed_by_key(None, |item| Some(key(item)))` with `dedup_by_key(|item| key(item))`.
+  Replace an initial key that is not `None`, i.e. `distinct_until_changed_by_key(Some(initial_key), |item| Some(key(item)))`, with `skip_while({ let key = key.clone(); move |item| futures_util::future::ready(key(item) == initial_key) }).dedup_by_key(move |item| key(item))` to keep discarding leading items with the initial key.
+  The `clone()` is only needed if `key` is a closure that is not `Copy`.
 - **Breaking:** `Throttler::on_first_item()` and `Throttler::on_tick()` no longer take a `Context` argument.
   The throttler is polled right after each callback.
 - **Breaking:** `debounce()` moved from `tokio::StreamExt` to `StreamExt`, where it requires the `tokio` feature.

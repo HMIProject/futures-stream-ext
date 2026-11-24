@@ -207,7 +207,7 @@ where
 
 #[derive(Debug)]
 struct ByKeyState<K, F> {
-    last_key: K,
+    last_key: Option<K>,
     key_fn: F,
 }
 
@@ -218,10 +218,10 @@ where
 {
     fn filter_next(&mut self, next_item: &T) -> bool {
         let next_key = (self.key_fn)(next_item);
-        if self.last_key == next_key {
+        if self.last_key.as_ref() == Some(&next_key) {
             return false;
         }
-        self.last_key = next_key;
+        self.last_key = Some(next_key);
         true
     }
 }
@@ -237,12 +237,12 @@ pin_project! {
 }
 
 impl<St, K, F> DedupByKey<St, K, F> {
-    pub(crate) const fn new(stream: St, initial_key: K, key_fn: F) -> Self {
+    pub(crate) const fn new(stream: St, key_fn: F) -> Self {
         Self {
             inner: FilterStatefulSync::new(
                 stream,
                 ByKeyState {
-                    last_key: initial_key,
+                    last_key: None,
                     key_fn,
                 },
             ),
