@@ -18,9 +18,6 @@ use futures_util::{Stream, stream::Fuse};
 mod debounce;
 pub use self::debounce::Debounce;
 
-mod default_if_empty;
-pub use self::default_if_empty::DefaultIfEmpty;
-
 mod dedup;
 pub use self::dedup::{Dedup, DedupBy, DedupByKey, DedupBySomeKey};
 
@@ -440,6 +437,25 @@ pub trait StreamExt: Stream {
     ///
     /// `make_item` is usually a closure, but can be any [`MakeItem`], e.g.
     /// [`DefaultItem`].
+    ///
+    /// The following marble diagram compares the variants for a non-empty and
+    /// an empty input stream. Time passes from left to right, `|` marks the end
+    /// of a stream, and `z` is the final item created by `make_item`. It is
+    /// yielded as soon as the input stream ended, immediately followed by the
+    /// end of the result:
+    ///
+    /// ```text
+    /// input:                   -a--b--|    ---|
+    /// end_with:                -a--b--z|   ---z|
+    /// end_with_if_nonempty:    -a--b--z|   ---|
+    /// default_if_empty_with:   -a--b--|    ---z|
+    /// ```
+    ///
+    /// Equivalent to `chain(stream::once(future::lazy(|_| make_item())))`
+    /// with [`futures_util`], but available in variants that depend on whether
+    /// the stream was empty.
+    ///
+    /// See also: [`end_with_if_nonempty()`](Self::end_with_if_nonempty)
     fn end_with<F>(self, make_item: F) -> EndWith<Self, F>
     where
         Self: Sized,
@@ -448,20 +464,69 @@ pub trait StreamExt: Stream {
         EndWith::new(self, make_item)
     }
 
-    /// Yields a single item if this stream ends without yielding any items.
+    /// Yields a final item after this stream ended, unless it ended without yielding any items.
     ///
-    /// Yields a final item created by `make_item` if the stream ended before
-    /// yielding its first item. Otherwise, the stream is passed through unchanged.
-    /// Equivalent to `defaultIfEmpty` in RxJS.
+    /// Like [`end_with()`](Self::end_with), but an empty stream stays empty, because there
+    /// is no last item that could become invalid. See the marble diagram of
+    /// [`end_with()`](Self::end_with).
     ///
-    /// `make_item` is usually a closure, but can be any [`MakeItem`], e.g.
-    /// [`DefaultItem`].
-    fn default_if_empty<F>(self, make_item: F) -> DefaultIfEmpty<Self, F>
+    /// The item is created by `make_item` only after a non-empty stream ended.
+    /// `make_item` is dropped without being invoked if the stream ended empty.
+    ///
+    /// ```
+    /// use futures_stream_ext::StreamExt as _;
+    /// use futures_util::{FutureExt as _, StreamExt as _, stream};
+    ///
+    /// let end_with_if_nonempty = |items: Vec<u32>| {
+    ///     stream::iter(items)
+    ///         .end_with_if_nonempty(|| 0)
+    ///         .collect::<Vec<_>>()
+    ///         .now_or_never()
+    ///         .unwrap()
+    /// };
+    /// assert_eq!(end_with_if_nonempty(vec![1, 2]), [1, 2, 0]);
+    /// assert_eq!(end_with_if_nonempty(vec![]), []);
+    /// ```
+    fn end_with_if_nonempty<F>(self, make_item: F) -> EndWith<Self, F>
     where
         Self: Sized,
         F: MakeItem<Self::Item>,
     {
-        DefaultIfEmpty::new(self, make_item)
+        EndWith::new_if_nonempty(self, make_item)
+    }
+
+    /// Yields the default item if this stream ends without yielding any items.
+    ///
+    /// Yields [`Default::default()`] as a final item if the stream ended before
+    /// yielding its first item. Otherwise, the stream is passed through unchanged.
+    /// Equivalent to `defaultIfEmpty` in RxJS. See the marble diagram of
+    /// [`end_with()`](Self::end_with).
+    ///
+    /// See also: [`default_if_empty_with()`](Self::default_if_empty_with)
+    fn default_if_empty(self) -> EndWith<Self, DefaultItem<Self::Item>>
+    where
+        Self: Sized,
+        Self::Item: Default,
+    {
+        EndWith::new_if_empty(self, DefaultItem::new())
+    }
+
+    /// Yields a single item if this stream ends without yielding any items.
+    ///
+    /// Yields a final item created by `make_item` if the stream ended before
+    /// yielding its first item. Otherwise, the stream is passed through unchanged.
+    /// Equivalent to `defaultIfEmpty` in RxJS. See the marble diagram of
+    /// [`end_with()`](Self::end_with).
+    ///
+    /// `make_item` is usually a closure, but can be any [`MakeItem`].
+    ///
+    /// See also: [`default_if_empty()`](Self::default_if_empty)
+    fn default_if_empty_with<F>(self, make_item: F) -> EndWith<Self, F>
+    where
+        Self: Sized,
+        F: MakeItem<Self::Item>,
+    {
+        EndWith::new_if_empty(self, make_item)
     }
 }
 

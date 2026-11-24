@@ -8,7 +8,8 @@ use super::StreamExt;
 
 /// Creates a single item on demand.
 ///
-/// Used by [`StreamExt::end_with()`] and [`StreamExt::default_if_empty()`].
+/// Used by [`StreamExt::end_with()`], [`StreamExt::end_with_if_nonempty()`] and
+/// [`StreamExt::default_if_empty_with()`].
 /// Implemented for closures and for [`DefaultItem`].
 ///
 /// This trait is needed, because a closure bound alone would not accept
@@ -32,8 +33,8 @@ where
 
 /// Creates [`Default::default()`].
 ///
-/// Can be passed to [`StreamExt::end_with()`] and
-/// [`StreamExt::default_if_empty()`] instead of the function pointer `fn() -> T`. A function pointer would add its size to the stream that
+/// Used by [`StreamExt::default_if_empty()`] instead of the function pointer
+/// `fn() -> T`. A function pointer would add its size to the stream that
 /// stores it and would be invoked indirectly. `DefaultItem` has no size and invokes
 /// [`Default::default()`] statically.
 // `PhantomData<fn() -> T>` instead of `PhantomData<T>`: `DefaultItem` never

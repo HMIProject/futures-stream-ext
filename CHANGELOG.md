@@ -12,10 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- The trait `MakeItem` creates the final item that `EndWith` and `DefaultIfEmpty` yield.
+- `StreamExt::end_with_if_nonempty()` yields a final item after the stream ended, like `end_with()`, unless the stream ended without yielding any items.
+- The trait `MakeItem` creates the final item that `EndWith` yields.
   It is implemented for closures and for `DefaultItem`, which yields `Default::default()`.
   `DefaultItem` can be created with `DefaultItem::new()` or `Default::default()` and is `Copy`.
-  `end_with()` and `default_if_empty()` accept any `MakeItem`, not only closures.
+  `end_with()` and `default_if_empty_with()` accept any `MakeItem`, not only closures.
 - The `dedup` stream types have a `yield_after(max_ready_count)` method that makes them yield to the executor after discarding `max_ready_count` consecutive ready items.
   By default, they still never yield while discarding items, like `filter()`.
   Use it if the input stream might be always ready and yield only items that are discarded, e.g. a synchronous stream.
@@ -36,6 +37,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Replace `distinct_until_changed_by_key(None, |item| Some(key(item)))` with `dedup_by_key(|item| key(item))`.
   Replace an initial key that is not `None`, i.e. `distinct_until_changed_by_key(Some(initial_key), |item| Some(key(item)))`, with `skip_while({ let key = key.clone(); move |item| futures_util::future::ready(key(item) == initial_key) }).dedup_by_key(move |item| key(item))` to keep discarding leading items with the initial key.
   The `clone()` is only needed if `key` is a closure that is not `Copy`.
+- **Breaking:** `default_if_empty(make_item)` was renamed to `default_if_empty_with(make_item)`.
+  `default_if_empty()` takes no argument and yields `Default::default()`.
+- **Breaking:** `default_if_empty()` and `default_if_empty_with()` return `EndWith`, like `end_with()` and `end_with_if_nonempty()`.
+  The stream type `DefaultIfEmpty` was removed.
 - **Breaking:** `Throttler::on_first_item()` and `Throttler::on_tick()` no longer take a `Context` argument.
   The throttler is polled right after each callback.
 - **Breaking:** `debounce()` moved from `tokio::StreamExt` to `StreamExt`, where it requires the `tokio` feature.
