@@ -10,6 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The `dedup` stream types have a `yield_after(max_ready_count)` method that makes them yield to the executor after discarding `max_ready_count` consecutive ready items.
+  By default, they still never yield while discarding items, like `filter()`.
+  Use it if the input stream might be always ready and yield only items that are discarded, e.g. a synchronous stream.
+  Otherwise, polling the stream never returns.
+
 ### Changed
 
 - **Breaking:** `Debounce` yields the pending item immediately when the input stream ends, instead of waiting for the delay to elapse, like `debounceTime` in RxJS.
