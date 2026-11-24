@@ -13,6 +13,8 @@ use futures_util::{
 };
 use pin_project_lite::pin_project;
 
+use crate::MakeItem;
+
 #[cfg(doc)]
 use super::StreamExt;
 
@@ -56,7 +58,7 @@ where
 impl<St, F> Stream for DefaultIfEmpty<St, F>
 where
     St: Stream,
-    F: FnOnce() -> St::Item,
+    F: MakeItem<St::Item>,
 {
     type Item = St::Item;
 
@@ -68,7 +70,7 @@ where
                 *this.make_item = None;
                 Some(item)
             }
-            None => this.make_item.take().map(|make_item| make_item()),
+            None => this.make_item.take().map(MakeItem::make_item),
         };
         Poll::Ready(next)
     }
@@ -86,7 +88,7 @@ where
 impl<St, F> FusedStream for DefaultIfEmpty<St, F>
 where
     St: Stream,
-    F: FnOnce() -> St::Item,
+    F: MakeItem<St::Item>,
 {
     fn is_terminated(&self) -> bool {
         self.stream.is_terminated() && self.make_item.is_none()

@@ -27,6 +27,9 @@ pub use self::dedup::{Dedup, DedupBy, DedupByKey, DedupBySomeKey};
 mod end_with;
 pub use self::end_with::EndWith;
 
+mod make_item;
+pub use self::make_item::{DefaultItem, MakeItem};
+
 mod switch_map;
 pub use self::switch_map::SwitchMap;
 
@@ -434,10 +437,13 @@ pub trait StreamExt: Stream {
     /// Intended for finite streams whose last item becomes invalid when they
     /// end, e.g. by yielding an error as the final item. Consumers consider the
     /// last item of a finite stream as valid indefinitely otherwise.
+    ///
+    /// `make_item` is usually a closure, but can be any [`MakeItem`], e.g.
+    /// [`DefaultItem`].
     fn end_with<F>(self, make_item: F) -> EndWith<Self, F>
     where
         Self: Sized,
-        F: FnOnce() -> Self::Item,
+        F: MakeItem<Self::Item>,
     {
         EndWith::new(self, make_item)
     }
@@ -447,10 +453,13 @@ pub trait StreamExt: Stream {
     /// Yields a final item created by `make_item` if the stream ended before
     /// yielding its first item. Otherwise, the stream is passed through unchanged.
     /// Equivalent to `defaultIfEmpty` in RxJS.
+    ///
+    /// `make_item` is usually a closure, but can be any [`MakeItem`], e.g.
+    /// [`DefaultItem`].
     fn default_if_empty<F>(self, make_item: F) -> DefaultIfEmpty<Self, F>
     where
         Self: Sized,
-        F: FnOnce() -> Self::Item,
+        F: MakeItem<Self::Item>,
     {
         DefaultIfEmpty::new(self, make_item)
     }

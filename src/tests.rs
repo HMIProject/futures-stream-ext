@@ -422,6 +422,14 @@ fn end_with_yields_final_item_after_empty_stream() {
 }
 
 #[test]
+fn end_with_accepts_default_item() {
+    let mut stream = stream::iter([1]).end_with(crate::DefaultItem::new());
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(1)));
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(0)));
+    assert_eq!(poll_next(&mut stream), Poll::Ready(None));
+}
+
+#[test]
 fn end_with_creates_final_item_only_after_stream_ended() {
     let queue = Rc::new(RefCell::new(VecDeque::from([1])));
     let created = Rc::new(Cell::new(false));
@@ -455,6 +463,36 @@ fn end_with_and_default_if_empty_implement_debug_for_closures() {
     let debug = format!("{:?}", stream::iter([1]).default_if_empty(|| 0));
     assert!(debug.starts_with("DefaultIfEmpty { stream: "), "{debug}");
     assert!(debug.ends_with(", .. }"), "{debug}");
+}
+
+#[test]
+fn default_if_empty_accepts_custom_make_item() {
+    struct Fallback;
+
+    impl crate::MakeItem<u32> for Fallback {
+        fn make_item(self) -> u32 {
+            42
+        }
+    }
+
+    let mut stream = stream::empty().default_if_empty(Fallback);
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(42)));
+    assert_eq!(poll_next(&mut stream), Poll::Ready(None));
+}
+
+#[test]
+fn default_item_can_be_created_and_copied() {
+    // `NoDefault` implements neither `Clone` nor `Default`.
+    struct NoDefault;
+
+    // Compiles only if `DefaultItem<NoDefault>` is `Copy` and `Default`.
+    let default_item = crate::DefaultItem::<NoDefault>::new();
+    let default_items = [default_item, default_item, Default::default()];
+    assert_eq!(default_items.len(), 3);
+
+    let make_item = crate::DefaultItem::<u32>::default();
+    let mut stream = stream::empty().default_if_empty(make_item);
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(0)));
 }
 
 #[test]
