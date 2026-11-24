@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: The futures-stream-ext authors
 // SPDX-License-Identifier: MPL-2.0
 
-use std::{num::NonZeroUsize, pin::pin, time::Duration};
+use std::{pin::pin, time::Duration};
 
 use futures_util::{Stream, StreamExt as _, stream};
 use tokio::time::{Instant, sleep};
@@ -56,7 +56,7 @@ async fn throttle_alternating_delay_stream_with_sleep<S: Sleep>(
 ) -> Vec<(u128, usize)> {
     let started_at = Instant::now();
     let throttled = alternating_delay_stream(started_at, odd_item_delay, even_item_delay)
-        .throttle(IntervalThrottler::<S>::new(period, edge), NonZeroUsize::MIN)
+        .throttle(IntervalThrottler::<S>::new(period, edge))
         .take(num_items);
     collect_with_millis(started_at, throttled).await
 }
@@ -257,7 +257,7 @@ async fn collect_throttled_with_sleep<S: Sleep, St: Stream>(
     edge: IntervalEdge,
 ) -> Vec<St::Item> {
     stream
-        .throttle(IntervalThrottler::<S>::new(period, edge), NonZeroUsize::MIN)
+        .throttle(IntervalThrottler::<S>::new(period, edge))
         .collect()
         .await
 }
@@ -314,8 +314,7 @@ async fn drain_always_ready_input_stream_with_sleep<S: Sleep>() -> Vec<(u128, us
     let period = ms(10);
     let edge = IntervalEdge::Trailing;
     let started_at = Instant::now();
-    let throttled =
-        stream::iter(0..5).throttle(IntervalThrottler::<S>::new(period, edge), NonZeroUsize::MIN);
+    let throttled = stream::iter(0..5).throttle(IntervalThrottler::<S>::new(period, edge));
     collect_with_millis(started_at, throttled).await
 }
 
@@ -344,7 +343,7 @@ async fn should_keep_the_fixed_schedule_and_skip_missed_periods_if_polled_late()
     let edge = IntervalEdge::Trailing;
     let mut throttled = pin!(
         alternating_delay_stream(started_at, ms(1), ms(1))
-            .throttle(TokioIntervalThrottler::new(period, edge), NonZeroUsize::MIN)
+            .throttle(TokioIntervalThrottler::new(period, edge))
     );
     let mut tick_millis = Vec::new();
     while tick_millis.len() < 4 {

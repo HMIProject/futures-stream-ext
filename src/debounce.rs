@@ -39,14 +39,29 @@ pin_project! {
 }
 
 impl<St: Stream, S: Sleep> Debounce<St, S> {
-    pub(crate) fn new(stream: St, delay: Duration, max_ready_count: NonZeroUsize) -> Self {
+    pub(crate) fn new(stream: St, delay: Duration) -> Self {
         Self {
             stream: stream.fuse(),
             delay,
-            max_ready_count,
+            max_ready_count: NonZeroUsize::MIN,
             pending_item: None,
             sleep: None,
         }
+    }
+}
+
+impl<St: Stream, S> Debounce<St, S> {
+    /// Yields to the executor after consuming `max_ready_count` consecutive
+    /// ready items of the input stream.
+    ///
+    /// Defaults to [`NonZeroUsize::MIN`]. See
+    /// [Polling ready items](crate::StreamExt#polling-ready-items) for how to
+    /// choose `max_ready_count`. See
+    /// [`StreamExt::debounce_with_sleep()`](crate::StreamExt::debounce_with_sleep)
+    /// for how it affects which items are yielded.
+    pub const fn yield_after(mut self, max_ready_count: NonZeroUsize) -> Self {
+        self.max_ready_count = max_ready_count;
+        self
     }
 }
 

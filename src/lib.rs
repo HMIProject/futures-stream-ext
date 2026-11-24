@@ -154,13 +154,18 @@ fn pending_and_wake_if<T>(cx: &mut Context<'_>, stream_maybe_ready: bool) -> Pol
 ///
 /// # Polling ready items
 ///
-/// Some combinators take a `max_ready_count` argument. They consume
-/// the items of their input stream that are ready at the same time, but only
-/// act on the latest one. The argument limits how many ready items are
-/// consumed consecutively during a single invocation of [`Stream::poll_next()`].
-/// After reaching the limit, the combinator wakes itself up and continues
-/// during the next invocation. This prevents an endless loop for input streams
-/// that are always ready.
+/// The streams returned by some combinators have a `yield_after(max_ready_count)`
+/// method. It limits how many ready items of the input stream are consumed
+/// consecutively during a single invocation of [`Stream::poll_next()`]. After
+/// reaching the limit, the stream wakes itself up and continues during the next
+/// invocation. This prevents an endless loop for input streams that are always
+/// ready.
+///
+/// [`Debounce`], [`Throttle`] and [`SwitchMap`] default to
+/// [`NonZeroUsize::MIN`]. They consume the items that are ready at the same
+/// time, but only act on the latest one.
+///
+/// Choosing the value:
 ///
 /// - [`NonZeroUsize::MIN`] is a safe default.
 /// - A greater value skips more items at once and needs fewer self-wakeups.
@@ -269,22 +274,18 @@ pub trait StreamExt: Stream {
     /// The delay is implemented by the given [`Sleep`] type.
     ///
     /// See [Polling ready items](StreamExt#polling-ready-items) for choosing
-    /// `max_ready_count`. Its value usually does not affect which items
-    /// are emitted, because items that are ready at the same time fall into the
+    /// the `max_ready_count` of [`Debounce::yield_after()`]. Its value usually
+    /// does not affect which items are emitted, because items that are ready at the same time fall into the
     /// same delay window anyway. Only with a zero delay, [`NonZeroUsize::MIN`]
     /// emits every item, while a greater value emits only the latest of up to
     /// `max_ready_count` items that are ready at the same time.
     ///
     /// See also: [`throttle()`](Self::throttle)
-    fn debounce_with_sleep<S: Sleep>(
-        self,
-        delay: Duration,
-        max_ready_count: NonZeroUsize,
-    ) -> Debounce<Self, S>
+    fn debounce_with_sleep<S: Sleep>(self, delay: Duration) -> Debounce<Self, S>
     where
         Self: Sized,
     {
-        Debounce::new(self, delay, max_ready_count)
+        Debounce::new(self, delay)
     }
 
     /// Throttles an input stream.
@@ -292,17 +293,17 @@ pub trait StreamExt: Stream {
     /// The throttler defines the throttling strategy.
     ///
     /// See [Polling ready items](StreamExt#polling-ready-items) for choosing
-    /// `max_ready_count`. Its value only affects which items are
-    /// yielded if the throttler is ready while multiple items are ready at the
+    /// the `max_ready_count` of [`Throttle::yield_after()`]. Its value only
+    /// affects which items are yielded if the throttler is ready while multiple items are ready at the
     /// same time: [`NonZeroUsize::MIN`] yields the first one, a greater value the
     /// latest of up to `max_ready_count` items. See [`IntervalThrottler`]
     /// for the impact on interval throttling and a marble diagram.
-    fn throttle<Th>(self, throttler: Th, max_ready_count: NonZeroUsize) -> Throttle<Self, Th>
+    fn throttle<Th>(self, throttler: Th) -> Throttle<Self, Th>
     where
         Self: Sized,
         Th: Throttler,
     {
-        Throttle::new(self, throttler, max_ready_count)
+        Throttle::new(self, throttler)
     }
 
     /// Switches to a new inner stream for each item of the outer stream.
@@ -339,8 +340,8 @@ pub trait StreamExt: Stream {
     ///
     /// # Choosing `max_ready_count`
     ///
-    /// See [Polling ready items](StreamExt#polling-ready-items). Unlike for the
-    /// other combinators, the value affects the result whenever the outer stream
+    /// See [Polling ready items](StreamExt#polling-ready-items) and
+    /// [`SwitchMap::yield_after()`]. Unlike for the other combinators, the value affects the result whenever the outer stream
     /// yields multiple items at the same time. Only the inner stream of the
     /// latest of up to `max_ready_count` ready outer items is created.
     /// With [`NonZeroUsize::MIN`], an inner stream is created for every outer
@@ -355,7 +356,8 @@ pub trait StreamExt: Stream {
     ///
     /// let switch_map = |max_ready_count| {
     ///     stream::iter([1, 2])
-    ///         .switch_map(|n| stream::iter([n * 10, n * 10 + 1]), max_ready_count)
+    ///         .switch_map(|n| stream::iter([n * 10, n * 10 + 1]))
+    ///         .yield_after(max_ready_count)
     ///         .collect::<Vec<_>>()
     ///         .now_or_never()
     ///         .unwrap()
@@ -383,13 +385,13 @@ pub trait StreamExt: Stream {
     /// Use `switch_map()` if only the inner stream of the latest outer item is
     /// relevant, e.g. when the outer stream yields the current configuration and
     /// the inner stream observes data that depends on it.
-    fn switch_map<U, F>(self, switch_to: F, max_ready_count: NonZeroUsize) -> SwitchMap<Self, U, F>
+    fn switch_map<U, F>(self, switch_to: F) -> SwitchMap<Self, U, F>
     where
         Self: Sized,
         U: Stream,
         F: FnMut(Self::Item) -> U,
     {
-        SwitchMap::new(self, switch_to, max_ready_count)
+        SwitchMap::new(self, switch_to)
     }
 
     /// Yields a final item after this stream ended.
