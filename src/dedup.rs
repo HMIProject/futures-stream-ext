@@ -1,0 +1,331 @@
+// SPDX-FileCopyrightText: The futures-stream-ext authors
+// SPDX-License-Identifier: MPL-2.0
+
+use std::{
+    mem,
+    pin::Pin,
+    task::{Context, Poll, ready},
+};
+
+use futures_util::{Stream, stream::FusedStream};
+use pin_project_lite::pin_project;
+
+/// Stateful predicate for filtering stream items synchronously.
+trait FilterState<T> {
+    /// Updates the state and returns `true` if `next_item` should be passed through.
+    fn filter_next(&mut self, next_item: &T) -> bool;
+}
+
+pin_project! {
+    /// Filters stream items synchronously with a stateful predicate.
+    ///
+    /// Unlike [`StreamExt::filter()`](futures_util::StreamExt::filter) it
+    /// neither buffers the item nor creates a future for each item.
+    #[derive(Debug)]
+    struct FilterStatefulSync<St, State> {
+        #[pin]
+        stream: St,
+        state: State,
+    }
+}
+
+impl<St, State> FilterStatefulSync<St, State> {
+    const fn new(stream: St, state: State) -> Self {
+        Self { stream, state }
+    }
+}
+
+impl<St, State> Stream for FilterStatefulSync<St, State>
+where
+    St: Stream,
+    State: FilterState<St::Item>,
+{
+    type Item = St::Item;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let mut this = self.project();
+        while let Some(next_item) = ready!(this.stream.as_mut().poll_next(cx)) {
+            if this.state.filter_next(&next_item) {
+                return Poll::Ready(Some(next_item));
+            }
+        }
+        Poll::Ready(None)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let (_, upper) = self.stream.size_hint();
+        (0, upper)
+    }
+}
+
+impl<St: FusedStream, State> FilterStatefulSync<St, State> {
+    fn is_terminated(&self) -> bool {
+        self.stream.is_terminated()
+    }
+}
+
+/// Implements [`FusedStream`] for a public wrapper of [`FilterStatefulSync`].
+macro_rules! impl_filter_wrapper {
+    ($name:ident<$($param:ident),*>) => {
+        impl<$($param),*> FusedStream for $name<$($param),*>
+        where
+            Self: Stream,
+            St: FusedStream,
+        {
+            fn is_terminated(&self) -> bool {
+                self.inner.is_terminated()
+            }
+        }
+    };
+}
+
+/// Implements [`Stream`] for a public wrapper of [`FilterStatefulSync`].
+macro_rules! delegate_stream_to_inner {
+    () => {
+        type Item = St::Item;
+
+        fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            self.project().inner.poll_next(cx)
+        }
+
+        fn size_hint(&self) -> (usize, Option<usize>) {
+            self.inner.size_hint()
+        }
+    };
+}
+
+/// Filtering of subsequent/adjacent sequence items that are equal according
+/// to `eq_fn`.
+///
+/// Each passed through item will be cloned once.
+/// All other sequence items are discarded.
+///
+/// See also: <https://rxmarbles.com/#distinctUntilChanged>
+fn filter_dedup_by<T>(
+    last_item: &mut Option<T>,
+    next_item: &T,
+    eq_fn: impl FnOnce(&T, &T) -> bool,
+) -> bool
+where
+    T: Clone,
+{
+    match last_item {
+        // Discard the next item.
+        Some(last_item) if eq_fn(last_item, next_item) => false,
+        Some(last_item) => {
+            // Reuse the existing allocation.
+            last_item.clone_from(next_item);
+            true
+        }
+        None => {
+            *last_item = Some(next_item.clone());
+            true
+        }
+    }
+}
+
+impl<T: Clone + PartialEq> FilterState<T> for Option<T> {
+    fn filter_next(&mut self, next_item: &T) -> bool {
+        filter_dedup_by(self, next_item, T::eq)
+    }
+}
+
+pin_project! {
+    /// Result of [`StreamExt::dedup()`](crate::StreamExt::dedup).
+    #[derive(Debug)]
+    #[must_use = "streams do nothing unless polled"]
+    pub struct Dedup<St: Stream> {
+        #[pin]
+        inner: FilterStatefulSync<St, Option<St::Item>>,
+    }
+}
+
+impl<St: Stream> Dedup<St> {
+    pub(crate) const fn new(stream: St) -> Self {
+        Self {
+            inner: FilterStatefulSync::new(stream, None),
+        }
+    }
+}
+
+impl<St> Stream for Dedup<St>
+where
+    St: Stream,
+    St::Item: Clone + PartialEq,
+{
+    delegate_stream_to_inner!();
+}
+
+#[derive(Debug)]
+struct ByState<T, F> {
+    last_item: Option<T>,
+    eq_fn: F,
+}
+
+impl<T, F> FilterState<T> for ByState<T, F>
+where
+    T: Clone,
+    F: FnMut(&T, &T) -> bool,
+{
+    fn filter_next(&mut self, next_item: &T) -> bool {
+        filter_dedup_by(&mut self.last_item, next_item, &mut self.eq_fn)
+    }
+}
+
+pin_project! {
+    /// Result of [`StreamExt::dedup_by()`](crate::StreamExt::dedup_by).
+    #[derive(Debug)]
+    #[must_use = "streams do nothing unless polled"]
+    pub struct DedupBy<St: Stream, F> {
+        #[pin]
+        inner: FilterStatefulSync<St, ByState<St::Item, F>>,
+    }
+}
+
+impl<St: Stream, F> DedupBy<St, F> {
+    pub(crate) const fn new(stream: St, eq_fn: F) -> Self {
+        Self {
+            inner: FilterStatefulSync::new(
+                stream,
+                ByState {
+                    last_item: None,
+                    eq_fn,
+                },
+            ),
+        }
+    }
+}
+
+impl<St, F> Stream for DedupBy<St, F>
+where
+    St: Stream,
+    St::Item: Clone,
+    F: FnMut(&St::Item, &St::Item) -> bool,
+{
+    delegate_stream_to_inner!();
+}
+
+#[derive(Debug)]
+struct ByKeyState<K, F> {
+    last_key: K,
+    key_fn: F,
+}
+
+impl<T, K, F> FilterState<T> for ByKeyState<K, F>
+where
+    K: PartialEq,
+    F: FnMut(&T) -> K,
+{
+    fn filter_next(&mut self, next_item: &T) -> bool {
+        let next_key = (self.key_fn)(next_item);
+        if self.last_key == next_key {
+            return false;
+        }
+        self.last_key = next_key;
+        true
+    }
+}
+
+pin_project! {
+    /// Result of [`StreamExt::dedup_by_key()`](crate::StreamExt::dedup_by_key).
+    #[derive(Debug)]
+    #[must_use = "streams do nothing unless polled"]
+    pub struct DedupByKey<St, K, F> {
+        #[pin]
+        inner: FilterStatefulSync<St, ByKeyState<K, F>>,
+    }
+}
+
+impl<St, K, F> DedupByKey<St, K, F> {
+    pub(crate) const fn new(stream: St, initial_key: K, key_fn: F) -> Self {
+        Self {
+            inner: FilterStatefulSync::new(
+                stream,
+                ByKeyState {
+                    last_key: initial_key,
+                    key_fn,
+                },
+            ),
+        }
+    }
+}
+
+impl<St, K, F> Stream for DedupByKey<St, K, F>
+where
+    St: Stream,
+    K: PartialEq,
+    F: FnMut(&St::Item) -> K,
+{
+    delegate_stream_to_inner!();
+}
+
+/// Filters out subsequent/adjacent items with the same key, if any.
+///
+/// Items without a key are passed through and interrupt the sequence.
+/// Keeps the last key after an interruption to reuse its allocation.
+#[derive(Debug)]
+struct BySomeKeyState<K, F> {
+    last_key: Option<K>,
+    interrupted: bool,
+    key_fn: F,
+}
+
+impl<T, K, F> FilterState<T> for BySomeKeyState<K, F>
+where
+    K: Clone + PartialEq,
+    F: FnMut(&T) -> Option<&K>,
+{
+    fn filter_next(&mut self, next_item: &T) -> bool {
+        let Some(next_key) = (self.key_fn)(next_item) else {
+            self.interrupted = true;
+            return true;
+        };
+        // The first key after an interruption is always passed through.
+        let interrupted = mem::take(&mut self.interrupted);
+        filter_dedup_by(&mut self.last_key, next_key, |last_key, next_key| {
+            !interrupted && last_key == next_key
+        })
+    }
+}
+
+pin_project! {
+    /// Result of [`StreamExt::dedup_by_some_key()`](crate::StreamExt::dedup_by_some_key).
+    #[derive(Debug)]
+    #[must_use = "streams do nothing unless polled"]
+    pub struct DedupBySomeKey<St, K, F> {
+        #[pin]
+        inner: FilterStatefulSync<St, BySomeKeyState<K, F>>,
+    }
+}
+
+impl<St, K, F> DedupBySomeKey<St, K, F> {
+    pub(crate) const fn new(stream: St, key_fn: F) -> Self {
+        Self {
+            inner: FilterStatefulSync::new(
+                stream,
+                BySomeKeyState {
+                    last_key: None,
+                    interrupted: false,
+                    key_fn,
+                },
+            ),
+        }
+    }
+}
+
+impl<St, K, F> Stream for DedupBySomeKey<St, K, F>
+where
+    St: Stream,
+    K: Clone + PartialEq,
+    F: FnMut(&St::Item) -> Option<&K>,
+{
+    delegate_stream_to_inner!();
+}
+
+impl_filter_wrapper!(Dedup<St>);
+impl_filter_wrapper!(DedupBy<St, F>);
+impl_filter_wrapper!(DedupByKey<St, K, F>);
+impl_filter_wrapper!(DedupBySomeKey<St, K, F>);
+
+#[cfg(test)]
+mod tests;

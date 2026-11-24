@@ -21,12 +21,8 @@ pub use self::debounce::Debounce;
 mod default_if_empty;
 pub use self::default_if_empty::DefaultIfEmpty;
 
-mod distinct;
-pub use self::distinct::{
-    DistinctState, DistinctUntilChanged, DistinctUntilChangedBy, DistinctUntilChangedByKey,
-    DistinctUntilChangedErr, DistinctUntilChangedOk, filter_distinct_until_changed,
-    filter_distinct_until_changed_err, filter_distinct_until_changed_ok,
-};
+mod dedup;
+pub use self::dedup::{Dedup, DedupBy, DedupByKey, DedupBySomeKey};
 
 mod end_with;
 pub use self::end_with::EndWith;
@@ -180,30 +176,32 @@ fn pending_and_wake_if<T>(cx: &mut Context<'_>, stream_maybe_ready: bool) -> Pol
 pub trait StreamExt: Stream {
     /// Filters out subsequent/adjacent stream items.
     ///
-    /// See also: [`filter_distinct_until_changed()`]
-    fn distinct_until_changed(self) -> DistinctUntilChanged<Self>
+    /// Equivalent to `distinctUntilChanged` in RxJS.
+    fn dedup(self) -> Dedup<Self>
     where
         Self: Sized,
         Self::Item: Clone + PartialEq,
     {
-        DistinctUntilChanged::new(self)
+        Dedup::new(self)
     }
 
     /// Filters out subsequent/adjacent stream items that are equal according to `eq_fn`.
     ///
-    /// `eq_fn` is invoked with the last passed through item and the next item.
-    /// The next item is discarded if `eq_fn` returns `true`.
+    /// `eq_fn` is invoked with the last passed through item and the next item,
+    /// in this order. The next item is discarded if `eq_fn` returns `true`.
+    /// The order matches `Itertools::dedup_by()`, but is the opposite of
+    /// [`Vec::dedup_by()`], which passes the next element first.
     /// Each passed through item is cloned once and stored until it is replaced
     /// by the next item that is not equal.
     ///
-    /// See also: [`distinct_until_changed()`](Self::distinct_until_changed)
-    fn distinct_until_changed_by<F>(self, eq_fn: F) -> DistinctUntilChangedBy<Self, F>
+    /// See also: [`dedup()`](Self::dedup)
+    fn dedup_by<F>(self, eq_fn: F) -> DedupBy<Self, F>
     where
         Self: Sized,
         Self::Item: Clone,
         F: FnMut(&Self::Item, &Self::Item) -> bool,
     {
-        DistinctUntilChangedBy::new(self, eq_fn)
+        DedupBy::new(self, eq_fn)
     }
 
     /// Filters out subsequent/adjacent stream items with the same key.
@@ -213,40 +211,53 @@ pub trait StreamExt: Stream {
     /// passed through unmodified.
     /// The last key is stored until a different key occurs.
     ///
-    /// See also: [`distinct_until_changed()`](Self::distinct_until_changed)
-    fn distinct_until_changed_by_key<K, F>(
-        self,
-        initial_key: K,
-        key_fn: F,
-    ) -> DistinctUntilChangedByKey<Self, K, F>
+    /// See also: [`dedup()`](Self::dedup)
+    fn dedup_by_key<K, F>(self, initial_key: K, key_fn: F) -> DedupByKey<Self, K, F>
     where
         Self: Sized,
         K: PartialEq,
         F: FnMut(&Self::Item) -> K,
     {
-        DistinctUntilChangedByKey::new(self, initial_key, key_fn)
+        DedupByKey::new(self, initial_key, key_fn)
     }
 
-    /// Filters out subsequent/adjacent `Ok` items in a result stream.
+    /// Filters out subsequent/adjacent stream items with the same key, if any.
     ///
-    /// See also: [`filter_distinct_until_changed_ok()`]
-    fn distinct_until_changed_ok<T, E>(self) -> DistinctUntilChangedOk<Self, T>
-    where
-        Self: Stream<Item = Result<T, E>> + Sized,
-        T: Clone + PartialEq,
-    {
-        DistinctUntilChangedOk::new(self)
-    }
-
-    /// Filters out subsequent/adjacent `Err` items in a result stream.
+    /// Like [`dedup_by_key()`](Self::dedup_by_key), but `key_fn` borrows the
+    /// key from the item and may return `None`. Items without a key are passed
+    /// through and interrupt the sequence: the next item with a key is passed
+    /// through, even if its key equals the last one. Each passed through key is
+    /// cloned once and stored until it is replaced by the next different key.
     ///
-    /// See also: [`filter_distinct_until_changed_err()`]
-    fn distinct_until_changed_err<T, E>(self) -> DistinctUntilChangedErr<Self, E>
+    /// Filters a [`Result`] stream by its `Ok` or `Err` values:
+    ///
+    /// ```
+    /// use futures_stream_ext::StreamExt as _;
+    /// use futures_util::{FutureExt as _, StreamExt as _, stream};
+    ///
+    /// let results = [Ok(1), Ok(1), Err("a"), Err("a"), Ok(1), Ok(2)];
+    /// let dedup_ok = stream::iter(results)
+    ///     .dedup_by_some_key(|result| result.as_ref().ok())
+    ///     .collect::<Vec<_>>()
+    ///     .now_or_never()
+    ///     .unwrap();
+    /// assert_eq!(dedup_ok, [Ok(1), Err("a"), Err("a"), Ok(1), Ok(2)]);
+    /// let dedup_err = stream::iter(results)
+    ///     .dedup_by_some_key(|result| result.as_ref().err())
+    ///     .collect::<Vec<_>>()
+    ///     .now_or_never()
+    ///     .unwrap();
+    /// assert_eq!(dedup_err, [Ok(1), Ok(1), Err("a"), Ok(1), Ok(2)]);
+    /// ```
+    ///
+    /// See also: [`dedup()`](Self::dedup)
+    fn dedup_by_some_key<K, F>(self, key_fn: F) -> DedupBySomeKey<Self, K, F>
     where
-        Self: Stream<Item = Result<T, E>> + Sized,
-        E: Clone + PartialEq,
+        Self: Sized,
+        K: Clone + PartialEq,
+        F: FnMut(&Self::Item) -> Option<&K>,
     {
-        DistinctUntilChangedErr::new(self)
+        DedupBySomeKey::new(self, key_fn)
     }
 
     /// Debounces an input stream.
