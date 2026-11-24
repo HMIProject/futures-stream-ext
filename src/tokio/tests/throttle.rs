@@ -7,7 +7,9 @@ use futures_util::{Stream, StreamExt as _, stream};
 use tokio::time::{Instant, sleep};
 
 use super::test_util::{DefaultResetSleep, alternating_delay_stream, collect_with_millis, ms};
-use crate::{IntervalEdge, IntervalThrottlerConfig, Sleep, StreamExt as _, tokio::StreamExt as _};
+use crate::{
+    IntervalEdge, IntervalThrottler, Sleep, StreamExt as _, tokio::TokioIntervalThrottler,
+};
 
 /// Throttles an alternating delay stream.
 ///
@@ -17,13 +19,15 @@ use crate::{IntervalEdge, IntervalThrottlerConfig, Sleep, StreamExt as _, tokio:
 /// [`tokio::time::Sleep`] and the drifting schedule of [`DefaultResetSleep`]
 /// diverge.
 async fn throttle_alternating_delay_stream(
-    config: IntervalThrottlerConfig,
+    period: Duration,
+    edge: IntervalEdge,
     odd_item_delay: Duration,
     even_item_delay: Duration,
     num_items: usize,
 ) -> Vec<(u128, usize)> {
     let collected = throttle_alternating_delay_stream_with_sleep::<tokio::time::Sleep>(
-        config,
+        period,
+        edge,
         odd_item_delay,
         even_item_delay,
         num_items,
@@ -32,7 +36,8 @@ async fn throttle_alternating_delay_stream(
     assert_eq!(
         collected,
         throttle_alternating_delay_stream_with_sleep::<DefaultResetSleep>(
-            config,
+            period,
+            edge,
             odd_item_delay,
             even_item_delay,
             num_items,
@@ -43,14 +48,15 @@ async fn throttle_alternating_delay_stream(
 }
 
 async fn throttle_alternating_delay_stream_with_sleep<S: Sleep>(
-    config: IntervalThrottlerConfig,
+    period: Duration,
+    edge: IntervalEdge,
     odd_item_delay: Duration,
     even_item_delay: Duration,
     num_items: usize,
 ) -> Vec<(u128, usize)> {
     let started_at = Instant::now();
     let throttled = alternating_delay_stream(started_at, odd_item_delay, even_item_delay)
-        .throttle_interval_with_sleep::<S>(config, NonZeroUsize::MIN)
+        .throttle(IntervalThrottler::<S>::new(period, edge), NonZeroUsize::MIN)
         .take(num_items);
     collect_with_millis(started_at, throttled).await
 }
@@ -73,9 +79,9 @@ async fn should_pass_through_an_input_stream_that_is_always_ready_with_an_empty_
         (0, 9),
     ];
     for edge in [IntervalEdge::Leading, IntervalEdge::Trailing] {
-        let config = IntervalThrottlerConfig { period, edge };
         let actual = throttle_alternating_delay_stream(
-            config,
+            period,
+            edge,
             odd_item_delay,
             even_item_delay,
             expected.len(),
@@ -118,9 +124,9 @@ async fn should_pass_through_the_input_stream_if_the_period_is_shorter_than_the_
         (IntervalEdge::Leading, expected_leading.as_slice()),
         (IntervalEdge::Trailing, expected_trailing.as_slice()),
     ] {
-        let config = IntervalThrottlerConfig { period, edge };
         let actual = throttle_alternating_delay_stream(
-            config,
+            period,
+            edge,
             odd_item_delay,
             even_item_delay,
             expected.len(),
@@ -136,10 +142,8 @@ async fn should_throttle_on_the_leading_edge() {
     // item: 0 |  1 |  2 |  3 |  4 |  5 |  6 |   7 |   8 |   9 |  10 |  11 |  12 |  13 |  14 | ...
     let odd_item_delay = ms(20);
     let even_item_delay = ms(10);
-    let config = IntervalThrottlerConfig {
-        period: ms(19),
-        edge: IntervalEdge::Leading,
-    };
+    let period = ms(19);
+    let edge = IntervalEdge::Leading;
     // ms:   0 | 19 | 20 | 39 | 58 | 77 | 96 | 115 | 134 | 153 | 172 | 191 | 210 | ...
     // item: 0 |  - |  1 |  2 |  3 |  4 |  6 |   7 |   8 |  10 |  11 |  12 |  14 | ...
     let expected = &[
@@ -156,9 +160,14 @@ async fn should_throttle_on_the_leading_edge() {
         (191, 12),
         (210, 14),
     ];
-    let actual =
-        throttle_alternating_delay_stream(config, odd_item_delay, even_item_delay, expected.len())
-            .await;
+    let actual = throttle_alternating_delay_stream(
+        period,
+        edge,
+        odd_item_delay,
+        even_item_delay,
+        expected.len(),
+    )
+    .await;
     assert_eq!(expected, actual.as_slice());
 }
 
@@ -168,10 +177,8 @@ async fn should_throttle_on_the_trailing_edge() {
     // item: 0 |  1 |  2 |  3 |  4 |  5 |  6 |   7 |   8 |   9 |  10 |  11 |  12 |  13 |  14 |  15 | ...
     let odd_item_delay = ms(10);
     let even_item_delay = ms(20);
-    let config = IntervalThrottlerConfig {
-        period: ms(19),
-        edge: IntervalEdge::Trailing,
-    };
+    let period = ms(19);
+    let edge = IntervalEdge::Trailing;
     // ms:   0 | 19 | 38 | 57 | 76 | 95 | 114 | 133 | 152 | 171 | 190 | 209 | 210 | 229 | ...
     // item: * |  1 |  2 |  3 |  5 |  6 |   7 |   9 |  10 |  11 |  13 |   - |   * |  15 | ...
     let expected = &[
@@ -187,9 +194,14 @@ async fn should_throttle_on_the_trailing_edge() {
         (190, 13),
         (229, 15),
     ];
-    let actual =
-        throttle_alternating_delay_stream(config, odd_item_delay, even_item_delay, expected.len())
-            .await;
+    let actual = throttle_alternating_delay_stream(
+        period,
+        edge,
+        odd_item_delay,
+        even_item_delay,
+        expected.len(),
+    )
+    .await;
     assert_eq!(expected, actual.as_slice());
 }
 
@@ -199,77 +211,111 @@ async fn should_throttle_on_the_trailing_edge_with_long_pauses() {
     // item: 0 |  1 |   2 |   3 |   4 |   5 |   6 |   7 | ...
     let odd_item_delay = ms(10);
     let even_item_delay = ms(100);
-    let config = IntervalThrottlerConfig {
-        period: ms(19),
-        edge: IntervalEdge::Trailing,
-    };
+    let period = ms(19);
+    let edge = IntervalEdge::Trailing;
     let expected = &[(19, 1), (129, 3), (239, 5), (349, 7)];
+    let actual = throttle_alternating_delay_stream(
+        period,
+        edge,
+        odd_item_delay,
+        even_item_delay,
+        expected.len(),
+    )
+    .await;
+    assert_eq!(expected, actual.as_slice());
+}
+
+#[tokio::test(start_paused = true)]
+async fn should_emit_a_lone_item_on_the_trailing_edge() {
+    // Each item arrives alone, i.e. no other item arrives before the next
+    // tick. It must be yielded at that tick and not be dropped.
+    // ms:   0 | 50 | 100 | 150 | ...
+    // item: 0 |  1 |   2 |   3 | ...
+    let item_delay = ms(50);
+    let period = ms(19);
+    let edge = IntervalEdge::Trailing;
+    let expected = &[(19, 0), (69, 1), (119, 2), (169, 3)];
     let actual =
-        throttle_alternating_delay_stream(config, odd_item_delay, even_item_delay, expected.len())
+        throttle_alternating_delay_stream(period, edge, item_delay, item_delay, expected.len())
             .await;
     assert_eq!(expected, actual.as_slice());
 }
 
-/// Configs with zero and non-zero periods for both edges.
-fn finish_test_configs() -> impl Iterator<Item = IntervalThrottlerConfig> {
+/// Zero and non-zero periods for both edges.
+fn finish_test_configs() -> impl Iterator<Item = (Duration, IntervalEdge)> {
     [Duration::ZERO, ms(1), ms(2)]
         .into_iter()
         .flat_map(|period| {
-            [IntervalEdge::Leading, IntervalEdge::Trailing]
-                .map(|edge| IntervalThrottlerConfig { period, edge })
+            [IntervalEdge::Leading, IntervalEdge::Trailing].map(|edge| (period, edge))
         })
 }
 
 /// Throttles the input stream and collects all items.
 async fn collect_throttled_with_sleep<S: Sleep, St: Stream>(
     stream: St,
-    config: IntervalThrottlerConfig,
+    period: Duration,
+    edge: IntervalEdge,
 ) -> Vec<St::Item> {
     stream
-        .throttle_interval_with_sleep::<S>(config, NonZeroUsize::MIN)
+        .throttle(IntervalThrottler::<S>::new(period, edge), NonZeroUsize::MIN)
         .collect()
         .await
 }
 
 #[tokio::test]
 async fn should_finish_on_empty_input_stream() {
-    for config in finish_test_configs() {
+    for (period, edge) in finish_test_configs() {
         assert_eq!(
             Vec::<()>::new(),
-            collect_throttled_with_sleep::<tokio::time::Sleep, _>(stream::empty::<()>(), config)
-                .await
+            collect_throttled_with_sleep::<tokio::time::Sleep, _>(
+                stream::empty::<()>(),
+                period,
+                edge
+            )
+            .await
         );
         assert_eq!(
             Vec::<()>::new(),
-            collect_throttled_with_sleep::<DefaultResetSleep, _>(stream::empty::<()>(), config)
-                .await
+            collect_throttled_with_sleep::<DefaultResetSleep, _>(
+                stream::empty::<()>(),
+                period,
+                edge
+            )
+            .await
         );
     }
 }
 
 #[tokio::test]
 async fn should_finish_after_non_empty_input_stream_has_completed() {
-    for config in finish_test_configs() {
+    for (period, edge) in finish_test_configs() {
         assert_eq!(
             vec![()],
-            collect_throttled_with_sleep::<tokio::time::Sleep, _>(stream::once(async {}), config)
-                .await
+            collect_throttled_with_sleep::<tokio::time::Sleep, _>(
+                stream::once(async {}),
+                period,
+                edge
+            )
+            .await
         );
         assert_eq!(
             vec![()],
-            collect_throttled_with_sleep::<DefaultResetSleep, _>(stream::once(async {}), config)
-                .await
+            collect_throttled_with_sleep::<DefaultResetSleep, _>(
+                stream::once(async {}),
+                period,
+                edge
+            )
+            .await
         );
     }
 }
 
 async fn drain_always_ready_input_stream_with_sleep<S: Sleep>() -> Vec<(u128, usize)> {
-    let config = IntervalThrottlerConfig {
-        period: ms(10),
-        edge: IntervalEdge::Trailing,
-    };
+    let period = ms(10);
+    let edge = IntervalEdge::Trailing;
     let started_at = Instant::now();
-    let throttled = stream::iter(0..5).throttle_interval_with_sleep::<S>(config, NonZeroUsize::MIN);
+    let throttled =
+        stream::iter(0..5).throttle(IntervalThrottler::<S>::new(period, edge), NonZeroUsize::MIN);
     collect_with_millis(started_at, throttled).await
 }
 
@@ -294,13 +340,11 @@ async fn should_drain_an_always_ready_input_stream_between_ticks() {
 async fn should_keep_the_fixed_schedule_and_skip_missed_periods_if_polled_late() {
     // A new item arrives every millisecond.
     let started_at = Instant::now();
-    let config = IntervalThrottlerConfig {
-        period: ms(10),
-        edge: IntervalEdge::Trailing,
-    };
+    let period = ms(10);
+    let edge = IntervalEdge::Trailing;
     let mut throttled = pin!(
         alternating_delay_stream(started_at, ms(1), ms(1))
-            .throttle_interval(config, NonZeroUsize::MIN)
+            .throttle(TokioIntervalThrottler::new(period, edge), NonZeroUsize::MIN)
     );
     let mut tick_millis = Vec::new();
     while tick_millis.len() < 4 {

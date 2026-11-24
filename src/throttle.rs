@@ -128,21 +128,6 @@ where
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct IntervalThrottlerConfig {
-    /// Throttling period
-    ///
-    /// The minimum interval between subsequent items that limits the
-    /// maximum frequency of the output stream.
-    pub period: Duration,
-
-    /// Interval edge gate
-    ///
-    /// Controls whether the pending item of the stream is yielded
-    /// immediately or after the interval has elapsed.
-    pub edge: IntervalEdge,
-}
-
 #[derive(Debug, Clone, Copy)]
 enum IntervalThrottlerState {
     /// No items are pending.
@@ -159,10 +144,48 @@ pin_project! {
     /// The interval is implemented by the given [`Sleep`] type. While items are
     /// pending, intervals follow a fixed schedule with missed intervals skipped
     /// (see [`Sleep::reset_next_period()`]).
+    ///
+    /// The `period` is the minimum interval between subsequent items, which
+    /// limits the maximum frequency of the throttled stream. The `edge`
+    /// controls whether a pending item is yielded at the start or at the end
+    /// of an interval.
+    ///
+    /// In the following marble diagram, time passes from left to right, `|`
+    /// marks the end of a stream, and the period spans 4 columns:
+    ///
+    /// ```text
+    /// input:     -ab-c-d-e----------f-g------|
+    /// leading:   -a---c---e---------f---g----|
+    /// trailing:  -----c---e-------------g----|
+    /// ```
+    ///
+    /// With [`IntervalEdge::Leading`], the first item of a burst is yielded
+    /// immediately. With [`IntervalEdge::Trailing`], the first interval
+    /// starts when the first item arrives. With both edges, the latest pending
+    /// item is yielded at the end of each interval, and all other items are
+    /// discarded. Intervals continue on a fixed schedule while items are
+    /// pending. After an interval without items the throttler is idle again,
+    /// e.g. before `f` arrives.
+    ///
+    /// The `max_ready_count` of [`StreamExt::throttle()`](crate::StreamExt::throttle)
+    /// only affects which items are yielded if a tick is ready while multiple
+    /// items are ready at the same time:
+    ///
+    /// - With [`IntervalEdge::Trailing`], items that are ready at the same time
+    ///   fall into the same interval anyway. A greater value only improves the
+    ///   efficiency.
+    /// - With [`IntervalEdge::Leading`], the first item of a burst is yielded
+    ///   immediately. [`NonZeroUsize::MIN`] yields the first ready item, a greater
+    ///   value the latest of up to `max_ready_count` items that are
+    ///   ready at the same time.
+    /// - With a zero period, [`NonZeroUsize::MIN`] passes every item through,
+    ///   a greater value skips all but the latest of the items that are ready at
+    ///   the same time.
     #[derive(Debug)]
     #[project = IntervalThrottlerProjection]
     pub struct IntervalThrottler<S> {
-        config: IntervalThrottlerConfig,
+        period: Duration,
+        edge: IntervalEdge,
         // Created on demand and reused afterwards.
         #[pin]
         sleep: Option<S>,
@@ -172,9 +195,10 @@ pin_project! {
 
 impl<S: Sleep> IntervalThrottler<S> {
     #[must_use]
-    pub const fn new(config: IntervalThrottlerConfig) -> Self {
+    pub const fn new(period: Duration, edge: IntervalEdge) -> Self {
         Self {
-            config,
+            period,
+            edge,
             sleep: None,
             state: IntervalThrottlerState::Idle,
         }
@@ -214,23 +238,25 @@ impl<S: Sleep> Throttler for IntervalThrottler<S> {
 
     fn on_first_item(self: Pin<&mut Self>) {
         let IntervalThrottlerProjection {
-            config,
+            period,
+            edge,
             sleep,
             state,
         } = self.project();
         debug_assert!(matches!(state, IntervalThrottlerState::Idle));
-        *state = match config.edge {
+        *state = match edge {
             // The first tick is ready immediately.
             IntervalEdge::Leading => IntervalThrottlerState::TickReady,
-            IntervalEdge::Trailing => start_interval(sleep, config.period),
+            IntervalEdge::Trailing => start_interval(sleep, *period),
         };
     }
 
     fn on_tick(self: Pin<&mut Self>, item_yielded: bool) {
         let IntervalThrottlerProjection {
-            config,
+            period,
             sleep,
             state,
+            ..
         } = self.project();
         if !item_yielded {
             // Leave the elapsed sleep unarmed until items are pending again.
@@ -239,13 +265,13 @@ impl<S: Sleep> Throttler for IntervalThrottler<S> {
         }
         match state {
             IntervalThrottlerState::Idle => panic!("on_tick called while idle"),
-            IntervalThrottlerState::TickReady => *state = start_interval(sleep, config.period),
+            IntervalThrottlerState::TickReady => *state = start_interval(sleep, *period),
             IntervalThrottlerState::Sleeping => {
                 // Continue on a fixed schedule.
                 sleep
                     .as_pin_mut()
                     .expect("sleep must exist while waiting for it")
-                    .reset_next_period(config.period);
+                    .reset_next_period(*period);
             }
         }
     }

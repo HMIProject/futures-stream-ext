@@ -7,7 +7,7 @@ use std::{num::NonZeroUsize, pin::Pin, time::Duration};
 
 use futures_util::Stream;
 
-use crate::{Debounce, IntervalThrottlerConfig, StreamExt as _, Throttle};
+use crate::{Debounce, StreamExt as _};
 
 /// [`IntervalThrottler`](crate::IntervalThrottler) using [`tokio::time::Sleep`].
 pub type TokioIntervalThrottler = crate::IntervalThrottler<tokio::time::Sleep>;
@@ -47,21 +47,6 @@ pub trait StreamExt: Stream {
         Self: Sized,
     {
         self.debounce_with_sleep(delay, max_ready_count)
-    }
-
-    /// Throttles an input stream by using a fixed interval with [`tokio::time::Sleep`].
-    ///
-    /// See [`throttle_interval_with_sleep()`](crate::StreamExt::throttle_interval_with_sleep)
-    /// for details, including how to choose `max_ready_count`.
-    fn throttle_interval(
-        self,
-        config: IntervalThrottlerConfig,
-        max_ready_count: NonZeroUsize,
-    ) -> Throttle<Self, TokioIntervalThrottler>
-    where
-        Self: Sized,
-    {
-        self.throttle_interval_with_sleep(config, max_ready_count)
     }
 }
 

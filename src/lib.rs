@@ -35,7 +35,7 @@ mod switch_map;
 pub use self::switch_map::SwitchMap;
 
 mod throttle;
-pub use self::throttle::{IntervalThrottler, IntervalThrottlerConfig, Throttle, Throttler};
+pub use self::throttle::{IntervalThrottler, Throttle, Throttler};
 
 #[cfg(feature = "tokio")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tokio")))]
@@ -295,47 +295,14 @@ pub trait StreamExt: Stream {
     /// `max_ready_count`. Its value only affects which items are
     /// yielded if the throttler is ready while multiple items are ready at the
     /// same time: [`NonZeroUsize::MIN`] yields the first one, a greater value the
-    /// latest of up to `max_ready_count` items. See
-    /// [`throttle_interval_with_sleep()`](Self::throttle_interval_with_sleep)
-    /// for the impact on interval throttling.
+    /// latest of up to `max_ready_count` items. See [`IntervalThrottler`]
+    /// for the impact on interval throttling and a marble diagram.
     fn throttle<Th>(self, throttler: Th, max_ready_count: NonZeroUsize) -> Throttle<Self, Th>
     where
         Self: Sized,
         Th: Throttler,
     {
         Throttle::new(self, throttler, max_ready_count)
-    }
-
-    /// Throttles an input stream by using a fixed interval.
-    ///
-    /// The interval is implemented by the given [`Sleep`] type.
-    ///
-    /// See [Polling ready items](StreamExt#polling-ready-items) for choosing
-    /// `max_ready_count`. Its value only affects which items are
-    /// yielded if a tick is ready while multiple items are ready at the same
-    /// time:
-    ///
-    /// - With [`IntervalEdge::Trailing`], items that are ready at the same time
-    ///   fall into the same interval anyway. A greater value only improves the
-    ///   efficiency.
-    /// - With [`IntervalEdge::Leading`], the first item of a burst is yielded
-    ///   immediately. [`NonZeroUsize::MIN`] yields the first ready item, a greater
-    ///   value the latest of up to `max_ready_count` items that are
-    ///   ready at the same time.
-    /// - With a zero period, [`NonZeroUsize::MIN`] passes every item through,
-    ///   a greater value skips all but the latest of the items that are ready at
-    ///   the same time.
-    ///
-    /// See also: [`throttle()`](Self::throttle)
-    fn throttle_interval_with_sleep<S: Sleep>(
-        self,
-        config: IntervalThrottlerConfig,
-        max_ready_count: NonZeroUsize,
-    ) -> Throttle<Self, IntervalThrottler<S>>
-    where
-        Self: Sized,
-    {
-        self.throttle(IntervalThrottler::new(config), max_ready_count)
     }
 
     /// Switches to a new inner stream for each item of the outer stream.
