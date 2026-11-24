@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Breaking:** `Debounce` yields the pending item immediately when the input stream ends, instead of waiting for the delay to elapse, like `debounceTime` in RxJS.
 - **Breaking:** The stream types `Debounced` and `Throttled` were renamed to `Debounce` and `Throttle`, matching the names of the methods that return them.
+- **Breaking:** `Throttler::on_first_item()` and `Throttler::on_tick()` no longer take a `Context` argument.
+  The throttler is polled right after each callback.
+- **Breaking:** `Throttler` is no longer generic over the item type and no longer a `Stream<Item = ()>`.
+  Implement `Throttler::poll_tick()`, which returns `Poll<()>`, instead of `Stream::poll_next()`.
+  `Throttler::on_tick()` takes `item_yielded: bool` instead of `Option<&T>`.
+  `IntervalThrottler` no longer implements `Stream`.
 
 ## [0.6.2] - 2026-11-23
 

@@ -64,18 +64,14 @@ impl Sleep for NoSleep {
 #[derive(Debug)]
 struct NoThrottler;
 
-impl Stream for NoThrottler {
-    type Item = ();
-
-    fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Poll::Ready(Some(()))
+impl Throttler for NoThrottler {
+    fn poll_tick(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<()> {
+        Poll::Ready(())
     }
-}
 
-impl<T> Throttler<T> for NoThrottler {
-    fn on_first_item(self: Pin<&mut Self>, _cx: &mut Context<'_>) {}
+    fn on_first_item(self: Pin<&mut Self>) {}
 
-    fn on_tick(self: Pin<&mut Self>, _cx: &mut Context<'_>, _yielded_item: Option<&T>) {}
+    fn on_tick(self: Pin<&mut Self>, _item_yielded: bool) {}
 }
 
 #[tokio::test]
