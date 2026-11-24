@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-24
+
 ### Added
 
 - `StreamExt::end_with_if_nonempty()` yields a final item after the stream ended, like `end_with()`, unless the stream ended without yielding any items.
@@ -160,7 +162,8 @@ A value of `NonZeroUsize::MIN` for `poll_next_max_ready_count` is a safe default
 Changes before 0.6 are not recorded in this file.
 See the [commit history](https://github.com/HMIProject/futures-stream-ext/commits/v0.5.0).
 
-[Unreleased]: https://github.com/HMIProject/futures-stream-ext/compare/v0.6.2...HEAD
+[Unreleased]: https://github.com/HMIProject/futures-stream-ext/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/HMIProject/futures-stream-ext/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/HMIProject/futures-stream-ext/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/HMIProject/futures-stream-ext/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/HMIProject/futures-stream-ext/compare/v0.5.0...v0.6.0
