@@ -651,12 +651,12 @@ fn poll_next<S: stream::Stream + Unpin>(stream: &mut S) -> Poll<Option<S::Item>>
 }
 
 #[test]
-fn switch_map_until_outer_end_should_drop_inner_stream_when_outer_ends() {
+fn switch_map_scoped_should_drop_inner_stream_when_outer_ends() {
     let queue = Rc::new(RefCell::new(VecDeque::from([1])));
     let dropped = Rc::new(Cell::new(false));
     let mut stream = queued_stream(&queue)
         .take_while(|n| futures_util::future::ready(*n != 0))
-        .switch_map_until_outer_end({
+        .switch_map_scoped({
             let dropped = Rc::clone(&dropped);
             move |n| {
                 let guard = DropFlag(Rc::clone(&dropped));
@@ -682,10 +682,10 @@ fn switch_map_until_outer_end_should_drop_inner_stream_when_outer_ends() {
 }
 
 #[test]
-fn switch_map_until_outer_end_should_continue_after_inner_ended_while_outer_continues() {
+fn switch_map_scoped_should_continue_after_inner_ended_while_outer_continues() {
     let queue = Rc::new(RefCell::new(VecDeque::from([1])));
     let mut stream = queued_stream(&queue)
-        .switch_map_until_outer_end(|n| stream::iter([n * 10]))
+        .switch_map_scoped(|n| stream::iter([n * 10]))
         .yield_after(NonZeroUsize::MAX);
     assert_eq!(poll_next(&mut stream), Poll::Ready(Some(10)));
     assert_eq!(poll_next(&mut stream), Poll::Pending);
@@ -696,10 +696,10 @@ fn switch_map_until_outer_end_should_continue_after_inner_ended_while_outer_cont
 }
 
 #[test]
-fn switch_map_until_outer_end_should_not_switch_to_item_that_arrived_with_end() {
+fn switch_map_scoped_should_not_switch_to_item_that_arrived_with_end() {
     let mut switched = Vec::new();
     let mut stream = stream::iter([1, 2])
-        .switch_map_until_outer_end(|n| {
+        .switch_map_scoped(|n| {
             switched.push(n);
             stream::iter([n * 10])
         })
@@ -710,10 +710,10 @@ fn switch_map_until_outer_end_should_not_switch_to_item_that_arrived_with_end() 
 }
 
 #[test]
-fn switch_map_until_outer_end_should_drop_switch_to_after_outer_ended() {
+fn switch_map_scoped_should_drop_switch_to_after_outer_ended() {
     let captured = Rc::new(());
     let mut stream = stream::iter([1])
-        .switch_map_until_outer_end({
+        .switch_map_scoped({
             let captured = Rc::clone(&captured);
             move |n| {
                 let _ = &captured;

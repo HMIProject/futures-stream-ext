@@ -432,7 +432,7 @@ pub trait StreamExt: Stream {
     /// relevant, e.g. when the outer stream yields the current configuration and
     /// the inner stream observes data that depends on it.
     ///
-    /// See also: [`switch_map_until_outer_end()`](Self::switch_map_until_outer_end)
+    /// See also: [`switch_map_scoped()`](Self::switch_map_scoped)
     fn switch_map<U, F>(self, switch_to: F) -> SwitchMap<Self, U, F>
     where
         Self: Sized,
@@ -481,7 +481,7 @@ pub trait StreamExt: Stream {
     ///
     /// let switch_map = |max_ready_count| {
     ///     stream::iter([1, 2])
-    ///         .switch_map_until_outer_end(|n| stream::iter([n * 10, n * 10 + 1]))
+    ///         .switch_map_scoped(|n| stream::iter([n * 10, n * 10 + 1]))
     ///         .yield_after(max_ready_count)
     ///         .collect::<Vec<_>>()
     ///         .now_or_never()
@@ -511,13 +511,13 @@ pub trait StreamExt: Stream {
     /// assert_eq!(result, [10, 20]);
     /// # }
     /// ```
-    fn switch_map_until_outer_end<U, F>(self, switch_to: F) -> SwitchMap<Self, U, F>
+    fn switch_map_scoped<U, F>(self, switch_to: F) -> SwitchMap<Self, U, F>
     where
         Self: Sized,
         U: Stream,
         F: FnMut(Self::Item) -> U,
     {
-        SwitchMap::new_until_outer_end(self, switch_to)
+        SwitchMap::new_scoped(self, switch_to)
     }
 
     /// Yields a final item after this stream ended.

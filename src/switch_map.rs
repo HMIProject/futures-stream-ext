@@ -20,17 +20,17 @@ use crate::{pending_and_wake_if, poll_latest_ready};
 use super::StreamExt;
 
 /// When the stream ends.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy)]
 enum Mode {
     /// After both the outer stream and the current inner stream ended.
-    AfterOuterAndInner,
+    Exhaustive,
     /// As soon as the outer stream ended, dropping the current inner stream.
-    WithOuter,
+    Scoped,
 }
 
 pin_project! {
     /// Stream returned by [`StreamExt::switch_map()`] and
-    /// [`StreamExt::switch_map_until_outer_end()`].
+    /// [`StreamExt::switch_map_scoped()`].
     #[must_use = "streams do nothing unless polled"]
     pub struct SwitchMap<St, U, F> {
         #[pin]
@@ -71,14 +71,14 @@ impl<St, U, F> SwitchMap<St, U, F> {
     where
         St: Stream,
     {
-        Self::with_mode(outer, switch_to, Mode::AfterOuterAndInner)
+        Self::with_mode(outer, switch_to, Mode::Exhaustive)
     }
 
-    pub(super) fn new_until_outer_end(outer: St, switch_to: F) -> Self
+    pub(super) fn new_scoped(outer: St, switch_to: F) -> Self
     where
         St: Stream,
     {
-        Self::with_mode(outer, switch_to, Mode::WithOuter)
+        Self::with_mode(outer, switch_to, Mode::Scoped)
     }
 
     fn with_mode(outer: St, switch_to: F, mode: Mode) -> Self
@@ -123,7 +123,7 @@ where
         // Only the inner stream of the latest one is created and polled.
         let (latest_item, outer_maybe_ready) =
             poll_latest_ready(this.outer.as_mut(), cx, *this.max_ready_count);
-        if this.outer.is_terminated() && *this.mode == Mode::WithOuter {
+        if this.outer.is_terminated() && matches!(*this.mode, Mode::Scoped) {
             // The inner stream must not outlive the outer stream. Neither
             // create the inner stream of an outer item that arrived together
             // with the end of the outer stream, because it would be dropped
