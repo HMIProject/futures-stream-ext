@@ -473,6 +473,13 @@ pub trait StreamExt: Stream {
     /// [`NonZeroUsize::MIN`], the end of the outer stream is observed only during the
     /// next invocation, after the inner stream of the last item has been polled once.
     ///
+    /// Remaining items of the inner stream are discarded as soon as the end of the outer
+    /// stream is observed, even if they are ready without delay. For an outer stream that
+    /// is synchronously finite, e.g. [`stream::iter()`](futures_util::stream::iter), the
+    /// inner stream of the last item yields at most a single item with the default
+    /// `max_ready_count`. In the example below, `21` is discarded although it is ready
+    /// together with `20`.
+    ///
     /// ```
     /// use std::num::NonZeroUsize;
     ///
