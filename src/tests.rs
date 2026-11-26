@@ -401,6 +401,92 @@ fn switch_map_should_implement_debug_for_closures() {
 }
 
 #[test]
+fn switch_map_scoped_should_drop_inner_stream_when_outer_ends() {
+    let queue = Rc::new(RefCell::new(VecDeque::from([1])));
+    let dropped = Rc::new(Cell::new(false));
+    let mut stream = queued_stream(&queue)
+        .take_while(|n| futures_util::future::ready(*n != 0))
+        .switch_map_scoped({
+            let dropped = Rc::clone(&dropped);
+            move |n| {
+                let guard = DropFlag(Rc::clone(&dropped));
+                stream::iter([n * 10, n * 10 + 1])
+                    .chain(stream::pending())
+                    .map(move |item| {
+                        let _ = &guard;
+                        item
+                    })
+            }
+        })
+        .yield_after(NonZeroUsize::MAX);
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(10)));
+    assert!(!dropped.get());
+
+    // The outer stream ends while the inner stream still has a ready item.
+    queue.borrow_mut().push_back(0);
+    assert_eq!(poll_next(&mut stream), Poll::Ready(None));
+    assert!(dropped.get());
+    assert!(stream.is_terminated());
+    assert_eq!(stream.size_hint(), (0, Some(0)));
+    assert_eq!(poll_next(&mut stream), Poll::Ready(None));
+}
+
+#[test]
+fn switch_map_scoped_should_continue_after_inner_ended_while_outer_continues() {
+    let queue = Rc::new(RefCell::new(VecDeque::from([1])));
+    let mut stream = queued_stream(&queue)
+        .switch_map_scoped(|n| stream::iter([n * 10]))
+        .yield_after(NonZeroUsize::MAX);
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(10)));
+    assert_eq!(poll_next(&mut stream), Poll::Pending);
+    assert!(!stream.is_terminated());
+
+    queue.borrow_mut().push_back(2);
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(20)));
+}
+
+#[test]
+fn switch_map_scoped_should_not_switch_to_item_that_arrived_with_end() {
+    let mut switched = Vec::new();
+    let mut stream = stream::iter([1, 2])
+        .switch_map_scoped(|n| {
+            switched.push(n);
+            stream::iter([n * 10])
+        })
+        .yield_after(NonZeroUsize::MAX);
+    assert_eq!(poll_next(&mut stream), Poll::Ready(None));
+    drop(stream);
+    assert_eq!(switched, [] as [u32; 0]);
+}
+
+#[test]
+fn switch_map_scoped_should_drop_switch_to_after_outer_ended() {
+    let captured = Rc::new(());
+    let mut stream = stream::iter([1])
+        .switch_map_scoped({
+            let captured = Rc::clone(&captured);
+            move |n| {
+                let _ = &captured;
+                stream::iter([n * 10]).chain(stream::pending())
+            }
+        })
+        .yield_after(NonZeroUsize::MIN);
+    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(10)));
+    assert_eq!(Rc::strong_count(&captured), 2);
+    assert_eq!(poll_next(&mut stream), Poll::Ready(None));
+    assert_eq!(Rc::strong_count(&captured), 1);
+}
+
+/// Sets the flag when dropped.
+struct DropFlag(Rc<Cell<bool>>);
+
+impl Drop for DropFlag {
+    fn drop(&mut self) {
+        self.0.set(true);
+    }
+}
+
+#[test]
 fn end_with_yields_final_item_after_stream_ended() {
     let mut stream = stream::iter([1, 2]).end_with(|| 0);
     assert_eq!(stream.size_hint(), (3, Some(3)));
@@ -648,90 +734,4 @@ fn poll_next<S: stream::Stream + Unpin>(stream: &mut S) -> Poll<Option<S::Item>>
         .next()
         .now_or_never()
         .map_or(Poll::Pending, Poll::Ready)
-}
-
-#[test]
-fn switch_map_scoped_should_drop_inner_stream_when_outer_ends() {
-    let queue = Rc::new(RefCell::new(VecDeque::from([1])));
-    let dropped = Rc::new(Cell::new(false));
-    let mut stream = queued_stream(&queue)
-        .take_while(|n| futures_util::future::ready(*n != 0))
-        .switch_map_scoped({
-            let dropped = Rc::clone(&dropped);
-            move |n| {
-                let guard = DropFlag(Rc::clone(&dropped));
-                stream::iter([n * 10, n * 10 + 1])
-                    .chain(stream::pending())
-                    .map(move |item| {
-                        let _ = &guard;
-                        item
-                    })
-            }
-        })
-        .yield_after(NonZeroUsize::MAX);
-    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(10)));
-    assert!(!dropped.get());
-
-    // The outer stream ends while the inner stream still has a ready item.
-    queue.borrow_mut().push_back(0);
-    assert_eq!(poll_next(&mut stream), Poll::Ready(None));
-    assert!(dropped.get());
-    assert!(stream.is_terminated());
-    assert_eq!(stream.size_hint(), (0, Some(0)));
-    assert_eq!(poll_next(&mut stream), Poll::Ready(None));
-}
-
-#[test]
-fn switch_map_scoped_should_continue_after_inner_ended_while_outer_continues() {
-    let queue = Rc::new(RefCell::new(VecDeque::from([1])));
-    let mut stream = queued_stream(&queue)
-        .switch_map_scoped(|n| stream::iter([n * 10]))
-        .yield_after(NonZeroUsize::MAX);
-    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(10)));
-    assert_eq!(poll_next(&mut stream), Poll::Pending);
-    assert!(!stream.is_terminated());
-
-    queue.borrow_mut().push_back(2);
-    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(20)));
-}
-
-#[test]
-fn switch_map_scoped_should_not_switch_to_item_that_arrived_with_end() {
-    let mut switched = Vec::new();
-    let mut stream = stream::iter([1, 2])
-        .switch_map_scoped(|n| {
-            switched.push(n);
-            stream::iter([n * 10])
-        })
-        .yield_after(NonZeroUsize::MAX);
-    assert_eq!(poll_next(&mut stream), Poll::Ready(None));
-    drop(stream);
-    assert_eq!(switched, [] as [u32; 0]);
-}
-
-#[test]
-fn switch_map_scoped_should_drop_switch_to_after_outer_ended() {
-    let captured = Rc::new(());
-    let mut stream = stream::iter([1])
-        .switch_map_scoped({
-            let captured = Rc::clone(&captured);
-            move |n| {
-                let _ = &captured;
-                stream::iter([n * 10]).chain(stream::pending())
-            }
-        })
-        .yield_after(NonZeroUsize::MIN);
-    assert_eq!(poll_next(&mut stream), Poll::Ready(Some(10)));
-    assert_eq!(Rc::strong_count(&captured), 2);
-    assert_eq!(poll_next(&mut stream), Poll::Ready(None));
-    assert_eq!(Rc::strong_count(&captured), 1);
-}
-
-/// Sets the flag when dropped.
-struct DropFlag(Rc<Cell<bool>>);
-
-impl Drop for DropFlag {
-    fn drop(&mut self) {
-        self.0.set(true);
-    }
 }
