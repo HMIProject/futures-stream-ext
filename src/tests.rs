@@ -432,6 +432,45 @@ fn switch_map_scoped_should_drop_inner_stream_when_outer_ends() {
 }
 
 #[test]
+fn switch_map_scoped_should_wake_up_when_outer_ends_while_inner_is_pending() {
+    let (wake_flag, waker) = WakeFlag::new_waker();
+    let mut cx = Context::from_waker(&waker);
+
+    // The outer stream yields a single item and then stays pending until it
+    // is ended explicitly, waking up the task that polled it.
+    let outer_ended = Rc::new(Cell::new(false));
+    let outer_waker = Rc::new(RefCell::new(None::<Waker>));
+    let mut item = Some(1);
+    let outer = stream::poll_fn({
+        let outer_ended = Rc::clone(&outer_ended);
+        let outer_waker = Rc::clone(&outer_waker);
+        move |cx| {
+            if let Some(item) = item.take() {
+                return Poll::Ready(Some(item));
+            }
+            if outer_ended.get() {
+                return Poll::Ready(None);
+            }
+            *outer_waker.borrow_mut() = Some(cx.waker().clone());
+            Poll::Pending
+        }
+    });
+
+    // The inner stream is always pending and never wakes up the task.
+    let mut stream = outer
+        .switch_map_scoped(|_| stream::pending::<u32>())
+        .yield_after(NonZeroUsize::MAX);
+    assert_eq!(stream.poll_next_unpin(&mut cx), Poll::Pending);
+    assert!(!wake_flag.take());
+
+    outer_ended.set(true);
+    outer_waker.borrow_mut().take().unwrap().wake();
+    assert!(wake_flag.take());
+    assert_eq!(stream.poll_next_unpin(&mut cx), Poll::Ready(None));
+    assert!(stream.is_terminated());
+}
+
+#[test]
 fn switch_map_scoped_should_continue_after_inner_ended_while_outer_continues() {
     let queue = Rc::new(RefCell::new(VecDeque::from([1])));
     let mut stream = queued_stream(&queue)
