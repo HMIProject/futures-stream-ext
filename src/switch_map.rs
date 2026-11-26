@@ -100,7 +100,11 @@ impl<St, U, F> SwitchMap<St, U, F> {
     /// Defaults to [`NonZeroUsize::MIN`]. See
     /// [Polling ready items](crate::StreamExt#polling-ready-items) for how to
     /// choose `max_ready_count`. It affects which inner streams are created,
-    /// see [`StreamExt::switch_map()`](crate::StreamExt::switch_map).
+    /// see [`StreamExt::switch_map()`](crate::StreamExt::switch_map). For
+    /// [`StreamExt::switch_map_scoped()`](crate::StreamExt::switch_map_scoped)
+    /// it also affects when the end of the outer stream is observed, and
+    /// thereby whether the inner stream of the last outer item is created and
+    /// polled at all.
     pub const fn yield_after(mut self, max_ready_count: NonZeroUsize) -> Self {
         self.max_ready_count = max_ready_count;
         self
