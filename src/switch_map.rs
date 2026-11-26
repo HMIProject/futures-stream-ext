@@ -37,11 +37,14 @@ pin_project! {
         outer: Fuse<St>,
 
         // `None` before the first outer item and after the current inner stream ended.
+        // In `Mode::Scoped` also `None` after the outer stream ended, i.e. it never
+        // outlives the outer stream.
         #[pin]
         inner: Option<U>,
 
-        // `None` after the outer stream ended. Drops the captured state early,
-        // while the last inner stream is still active.
+        // `None` after the outer stream ended. In `Mode::Exhaustive` this drops the
+        // captured state early, while the last inner stream might still be active.
+        // In `Mode::Scoped` it is dropped together with the inner stream.
         switch_to: Option<F>,
 
         mode: Mode,
