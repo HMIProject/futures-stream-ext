@@ -431,6 +431,8 @@ pub trait StreamExt: Stream {
     /// Use `switch_map()` if only the inner stream of the latest outer item is
     /// relevant, e.g. when the outer stream yields the current configuration and
     /// the inner stream observes data that depends on it.
+    ///
+    /// See also: [`switch_map_until_outer_end()`](Self::switch_map_until_outer_end)
     fn switch_map<U, F>(self, switch_to: F) -> SwitchMap<Self, U, F>
     where
         Self: Sized,
@@ -438,6 +440,84 @@ pub trait StreamExt: Stream {
         F: FnMut(Self::Item) -> U,
     {
         SwitchMap::new(self, switch_to)
+    }
+
+    /// Switches to a new inner stream for each item of the outer stream until the outer
+    /// stream ends.
+    ///
+    /// Like [`switch_map()`](Self::switch_map), but ends as soon as the outer stream
+    /// ended. The current inner stream is dropped at that point, i.e. its pending items
+    /// are discarded and no inner stream outlives the outer stream. Use this variant if
+    /// the outer stream controls the lifetime of the inner streams, e.g. when the outer
+    /// stream yields the current configuration of a session and the inner streams
+    /// observe data that is only valid during the session.
+    ///
+    /// The marble diagram uses the same input as the one of
+    /// [`switch_map()`](Self::switch_map):
+    ///
+    /// ```text
+    /// outer:   --a---------b-------c--|
+    /// inner a:   --1---2---!
+    /// inner b:             ----4-|
+    /// inner c:                     --5!
+    /// result:  ----1---2-------4-----5|
+    /// ```
+    ///
+    /// Inner stream `c` would have yielded `6` later, but is dropped when the outer
+    /// stream ends.
+    ///
+    /// The outer stream is polled before the inner stream, so its end is observed before
+    /// the inner stream is polled again. If the outer stream yields its last item and
+    /// ends at the same time, the inner stream of that item is not even created. This
+    /// depends on `max_ready_count`, see [`SwitchMap::yield_after()`]: with
+    /// [`NonZeroUsize::MIN`], the end of the outer stream is observed only during the
+    /// next invocation, after the inner stream of the last item has been polled once.
+    ///
+    /// ```
+    /// use std::num::NonZeroUsize;
+    ///
+    /// use futures_stream_ext::StreamExt as _;
+    /// use futures_util::{FutureExt as _, StreamExt as _, stream};
+    ///
+    /// let switch_map = |max_ready_count| {
+    ///     stream::iter([1, 2])
+    ///         .switch_map_until_outer_end(|n| stream::iter([n * 10, n * 10 + 1]))
+    ///         .yield_after(max_ready_count)
+    ///         .collect::<Vec<_>>()
+    ///         .now_or_never()
+    ///         .unwrap()
+    /// };
+    /// assert_eq!(switch_map(NonZeroUsize::MIN), [10, 20]);
+    /// assert_eq!(switch_map(NonZeroUsize::MAX), []);
+    /// ```
+    ///
+    /// Equivalent to `switch_map()` with an outer stream that yields an additional item
+    /// that is mapped to an empty inner stream, but without the extra item:
+    ///
+    /// ```
+    /// use futures_stream_ext::StreamExt as _;
+    /// use futures_util::{StreamExt as _, future::Either, stream};
+    ///
+    /// # #[tokio::main(flavor = "current_thread")]
+    /// # async fn main() {
+    /// let outer = stream::iter([1, 2]).map(Some).chain(stream::iter([None]));
+    /// let result = outer
+    ///     .switch_map(|n| match n {
+    ///         Some(n) => Either::Left(stream::iter([n * 10, n * 10 + 1])),
+    ///         None => Either::Right(stream::empty()),
+    ///     })
+    ///     .collect::<Vec<_>>()
+    ///     .await;
+    /// assert_eq!(result, [10, 20]);
+    /// # }
+    /// ```
+    fn switch_map_until_outer_end<U, F>(self, switch_to: F) -> SwitchMap<Self, U, F>
+    where
+        Self: Sized,
+        U: Stream,
+        F: FnMut(Self::Item) -> U,
+    {
+        SwitchMap::new_until_outer_end(self, switch_to)
     }
 
     /// Yields a final item after this stream ended.

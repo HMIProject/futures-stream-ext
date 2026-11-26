@@ -22,6 +22,8 @@ and are modeled after their [RxJS](https://rxjs.dev) counterparts:
 - `throttle()`: yield at most the latest item per interval (`throttleTime`, `auditTime`)
 - `switch_map()`: switch to a new inner stream for each outer item and drop the previous one
   (`switchMap`)
+- `switch_map_until_outer_end()`: like `switch_map()`, but end and drop the current inner stream as
+  soon as the outer stream ended
 - `end_with()`, `end_with_if_nonempty()`: yield a final item after the stream ended (`endWith`)
 - `default_if_empty()`, `default_if_empty_with()`: yield a single item if the stream ended empty
   (`defaultIfEmpty`)
