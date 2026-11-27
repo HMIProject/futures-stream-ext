@@ -19,20 +19,35 @@ use crate::{pending_and_wake_if, poll_latest_ready};
 #[cfg(doc)]
 use super::StreamExt;
 
+/// When the stream ends.
+#[derive(Debug, Clone, Copy)]
+enum Mode {
+    /// After both the outer stream and the current inner stream ended.
+    Exhaustive,
+    /// As soon as the outer stream ended, dropping the current inner stream.
+    Scoped,
+}
+
 pin_project! {
-    /// Stream returned by [`StreamExt::switch_map()`].
+    /// Stream returned by [`StreamExt::switch_map()`] and
+    /// [`StreamExt::switch_map_scoped()`].
     #[must_use = "streams do nothing unless polled"]
     pub struct SwitchMap<St, U, F> {
         #[pin]
         outer: Fuse<St>,
 
         // `None` before the first outer item and after the current inner stream ended.
+        // In `Mode::Scoped` also `None` after the outer stream ended, i.e. it never
+        // outlives the outer stream.
         #[pin]
         inner: Option<U>,
 
-        // `None` after the outer stream ended. Drops the captured state early,
-        // while the last inner stream is still active.
+        // `None` after the outer stream ended. In `Mode::Exhaustive` this drops the
+        // captured state early, while the last inner stream might still be active.
+        // In `Mode::Scoped` it is dropped together with the inner stream.
         switch_to: Option<F>,
+
+        mode: Mode,
 
         max_ready_count: NonZeroUsize,
     }
@@ -48,6 +63,7 @@ where
         f.debug_struct("SwitchMap")
             .field("outer", &self.outer)
             .field("inner", &self.inner)
+            .field("mode", &self.mode)
             .field("max_ready_count", &self.max_ready_count)
             .finish_non_exhaustive()
     }
@@ -58,10 +74,25 @@ impl<St, U, F> SwitchMap<St, U, F> {
     where
         St: Stream,
     {
+        Self::with_mode(outer, switch_to, Mode::Exhaustive)
+    }
+
+    pub(super) fn new_scoped(outer: St, switch_to: F) -> Self
+    where
+        St: Stream,
+    {
+        Self::with_mode(outer, switch_to, Mode::Scoped)
+    }
+
+    fn with_mode(outer: St, switch_to: F, mode: Mode) -> Self
+    where
+        St: Stream,
+    {
         Self {
             outer: outer.fuse(),
             inner: None,
             switch_to: Some(switch_to),
+            mode,
             max_ready_count: NonZeroUsize::MIN,
         }
     }
@@ -72,7 +103,11 @@ impl<St, U, F> SwitchMap<St, U, F> {
     /// Defaults to [`NonZeroUsize::MIN`]. See
     /// [Polling ready items](crate::StreamExt#polling-ready-items) for how to
     /// choose `max_ready_count`. It affects which inner streams are created,
-    /// see [`StreamExt::switch_map()`](crate::StreamExt::switch_map).
+    /// see [`StreamExt::switch_map()`](crate::StreamExt::switch_map). For
+    /// [`StreamExt::switch_map_scoped()`](crate::StreamExt::switch_map_scoped)
+    /// it also affects when the end of the outer stream is observed, and
+    /// thereby whether the inner stream of the last outer item is created and
+    /// polled at all.
     pub const fn yield_after(mut self, max_ready_count: NonZeroUsize) -> Self {
         self.max_ready_count = max_ready_count;
         self
@@ -95,6 +130,15 @@ where
         // Only the inner stream of the latest one is created and polled.
         let (latest_item, outer_maybe_ready) =
             poll_latest_ready(this.outer.as_mut(), cx, *this.max_ready_count);
+        if this.outer.is_terminated() && matches!(*this.mode, Mode::Scoped) {
+            // The inner stream must not outlive the outer stream. Neither
+            // create the inner stream of an outer item that arrived together
+            // with the end of the outer stream, because it would be dropped
+            // before being polled.
+            this.inner.set(None);
+            *this.switch_to = None;
+            return Poll::Ready(None);
+        }
         if let Some(item) = latest_item {
             // Drop the stale inner stream before creating its replacement.
             // A single `set()` would call `switch_to()` first and drop the

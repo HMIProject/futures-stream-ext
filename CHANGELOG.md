@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `StreamExt::switch_map_scoped()` switches to a new inner stream for each outer item like `switch_map()`, but ends as soon as the outer stream ended.
+  The current inner stream is dropped at that point, so no inner stream outlives the outer stream.
+
 ## [0.7.0] - 2026-11-24
 
 ### Added
