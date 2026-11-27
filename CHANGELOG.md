@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-27
+
 ### Added
 
 - `StreamExt::switch_map_scoped()` switches to a new inner stream for each outer item like `switch_map()`, but ends as soon as the outer stream ended.
@@ -167,7 +169,8 @@ A value of `NonZeroUsize::MIN` for `poll_next_max_ready_count` is a safe default
 Changes before 0.6 are not recorded in this file.
 See the [commit history](https://github.com/HMIProject/futures-stream-ext/commits/v0.5.0).
 
-[Unreleased]: https://github.com/HMIProject/futures-stream-ext/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/HMIProject/futures-stream-ext/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/HMIProject/futures-stream-ext/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/HMIProject/futures-stream-ext/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/HMIProject/futures-stream-ext/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/HMIProject/futures-stream-ext/compare/v0.6.0...v0.6.1
